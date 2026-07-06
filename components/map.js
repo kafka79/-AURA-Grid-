@@ -9,7 +9,7 @@ export class CampusMap {
 
   init() {
     this.container.innerHTML = `
-      <div class="map-canvas-container" style="width:100%; height:100%;">
+      <div class="map-canvas-container">
         <svg class="campus-svg" viewBox="0 0 800 480" xmlns="http://www.w3.org/2000/svg">
           <!-- Background grids and visual lines -->
           <defs>
@@ -125,10 +125,10 @@ export class CampusMap {
     if (!stats) return;
 
     this.tooltip.innerHTML = `
-      <div style="font-weight:600; font-family:var(--font-display); margin-bottom: 4px; color:#fff">${stats.name}</div>
-      <div>Load: <span style="font-family:var(--font-display); font-weight:600; color:var(--color-cyan)">${stats.load.toFixed(1)} kW</span></div>
-      <div>Temp: <span style="font-family:var(--font-display);">${stats.currentTemp.toFixed(1)}°C</span></div>
-      <div style="font-size:0.65rem; color:var(--text-muted); margin-top:4px;">Click for deep analytics</div>
+      <div class="map-tooltip-title">${stats.name}</div>
+      <div class="map-tooltip-row">Load: <span class="map-tooltip-value cyan">${stats.load.toFixed(1)} kW</span></div>
+      <div class="map-tooltip-row">Temp: <span class="map-tooltip-value">${stats.currentTemp.toFixed(1)}°C</span></div>
+      <div class="map-tooltip-footer">Click for deep analytics</div>
     `;
     this.tooltip.style.opacity = 1;
     this.moveTooltip(e);

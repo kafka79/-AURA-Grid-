@@ -198,9 +198,28 @@ header {
   flex-grow: 1;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1400px) {
+  .dashboard-grid {
+    grid-template-columns: 320px 1fr;
+  }
+  .right-column {
+    grid-column: span 2;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+  }
+}
+
+@media (max-width: 1024px) {
   .dashboard-grid {
     grid-template-columns: 1fr;
+  }
+  .left-column, .center-column, .right-column {
+    grid-column: span 1;
+  }
+  .right-column {
+    display: flex;
+    flex-direction: column;
   }
 }
 
@@ -402,6 +421,38 @@ header {
   transition: opacity 0.2s ease;
   z-index: 100;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.8);
+}
+
+.map-canvas-container {
+  width: 100%;
+  height: 100%;
+}
+
+.map-tooltip-title {
+  font-weight: 600;
+  font-family: var(--font-display);
+  margin-bottom: 4px;
+  color: #fff;
+}
+
+.map-tooltip-row {
+  color: var(--text-secondary);
+}
+
+.map-tooltip-value {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.map-tooltip-value.cyan {
+  color: var(--color-cyan);
+}
+
+.map-tooltip-footer {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  margin-top: 4px;
 }
 
 /* Building Detail Overlay */

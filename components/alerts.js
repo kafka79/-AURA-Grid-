@@ -2,6 +2,17 @@ export class AlertManager {
   constructor(containerId, onAlertAction) {
     this.container = document.getElementById(containerId);
     this.onAlertAction = onAlertAction;
+
+    // Use event delegation to handle alert action clicks (prevents memory leaks and multiple bindings)
+    this.container.addEventListener('click', (e) => {
+      const btn = e.target.closest('.alert-action-btn');
+      if (btn) {
+        const alertId = btn.getAttribute('data-alert-id');
+        if (alertId) {
+          this.onAlertAction(alertId);
+        }
+      }
+    });
   }
 
   render(alerts) {
@@ -33,17 +44,5 @@ export class AlertManager {
         </button>
       </div>
     `).join('');
-
-    this.bindEvents();
-  }
-
-  bindEvents() {
-    const buttons = this.container.querySelectorAll('.alert-action-btn');
-    buttons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const alertId = btn.getAttribute('data-alert-id');
-        this.onAlertAction(alertId);
-      });
-    });
   }
 }

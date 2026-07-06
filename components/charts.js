@@ -8,14 +8,59 @@ export class DashboardCharts {
     
     // Historical buffer for line chart (last 15 data points)
     this.historyMaxLength = 15;
-    this.solarHistory = Array(this.historyMaxLength).fill(0);
-    this.gridHistory = Array(this.historyMaxLength).fill(0);
-    this.timeLabelsHistory = Array(this.historyMaxLength).fill('');
+    this.solarHistory = [];
+    this.gridHistory = [];
+    this.timeOffset = 0;
+
+    // Pre-populate buffer with empty coordinates so the chart has initial axes
+    const startHour = 10.0;
+    const interval = 0.08;
+    for (let i = 0; i < this.historyMaxLength; i++) {
+      const x = startHour - (this.historyMaxLength - 1 - i) * interval;
+      this.solarHistory.push({ x: x, y: 0 });
+      this.gridHistory.push({ x: x, y: 0 });
+    }
     
     this.init();
   }
 
   init() {
+    // Graceful fallback if ApexCharts library failed to load (e.g. offline or CDN outage)
+    if (typeof window.ApexCharts === 'undefined') {
+      console.warn("ApexCharts library not found. Rendering fallback container.");
+      
+      const setupFallback = (containerId, title) => {
+        const container = document.getElementById(containerId);
+        if (container) {
+          container.innerHTML = `
+            <div class="chart-fallback-placeholder" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 180px; color: var(--text-secondary); text-align: center; border: 1px dashed var(--border-light); border-radius: 8px; padding: 20px;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 8px;"><path d="m19 12-5 5-4-4-3 3"/><path d="M3 3v18h18"/></svg>
+              <span style="font-family: var(--font-display); font-size: 0.9rem; font-weight: 500; color: var(--text-primary);">${title} Offline</span>
+              <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Could not load charting library. Live updates simulated in stats panel.</span>
+            </div>
+          `;
+        }
+      };
+
+      setupFallback(this.liveChartId, 'Live Energy Trend Chart');
+      setupFallback(this.donutChartId, 'System Load Breakdown Donut');
+
+      // Setup mock stubs to allow the application execution flow to continue without crashes
+      this.liveChart = {
+        render: () => {},
+        updateOptions: () => {},
+        w: { config: { series: [] } }
+      };
+
+      this.donutChart = {
+        render: () => {},
+        updateSeries: () => {},
+        w: { config: { series: [] } }
+      };
+
+      return;
+    }
+
     // 1. Initialize Live Energy Trend Chart
     const liveChartOptions = {
       series: [
@@ -63,11 +108,23 @@ export class DashboardCharts {
         yaxis: { lines: { show: true } }
       },
       xaxis: {
-        categories: this.timeLabelsHistory,
+        type: 'numeric',
+        tickAmount: 4,
         labels: {
           style: {
             fontFamily: 'Inter, sans-serif',
             fontSize: '10px'
+          },
+          formatter: (value) => {
+            if (value === undefined || value === null) return '';
+            // Wrap decimal time back into 24 hour range
+            const normalized = ((parseFloat(value) % 24) + 24) % 24;
+            const hours = Math.floor(normalized);
+            const minutes = Math.floor((normalized - hours) * 60);
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            const displayHours = hours % 12 === 0 ? 12 : hours % 12;
+            const minStr = minutes < 10 ? '0' + minutes : minutes;
+            return `${displayHours}:${minStr} ${ampm}`;
           }
         },
         axisBorder: { show: false },
@@ -167,36 +224,36 @@ export class DashboardCharts {
     this.donutChart.render();
   }
 
-  updateLiveHistory(solarKW, gridKW, timeStr) {
-    // Slide values to left
-    this.solarHistory.shift();
-    this.solarHistory.push(solarKW);
+  updateLiveHistory(solarKW, gridKW, decimalTime) {
+    if (this.solarHistory.length > 0) {
+      const prevX = this.solarHistory[this.solarHistory.length - 1].x;
+      const prevTimeOfDay = prevX - this.timeOffset;
+      if (decimalTime < prevTimeOfDay) {
+        // Wrapped around midnight! Offset to prevent reverse line tracing
+        this.timeOffset += 24;
+      }
+    }
 
-    this.gridHistory.shift();
-    this.gridHistory.push(gridKW);
+    const xVal = decimalTime + this.timeOffset;
+    this.solarHistory.push({ x: xVal, y: solarKW });
+    this.gridHistory.push({ x: xVal, y: gridKW });
 
-    this.timeLabelsHistory.shift();
-    // Crop time string to display hours:minutes
-    const shortTime = timeStr.replace(' AM', '').replace(' PM', '');
-    this.timeLabelsHistory.push(shortTime);
+    if (this.solarHistory.length > this.historyMaxLength) {
+      this.solarHistory.shift();
+      this.gridHistory.shift();
+    }
 
-    // OPTIMIZATION: Update both categories and series in one single call.
-    // This prevents double redraw cycles and layout thrashing in ApexCharts.
-    this.liveChart.updateOptions({
-      xaxis: {
-        categories: this.timeLabelsHistory
+    // High-performance direct updateSeries invocation (completely bypasses updateOptions rebuilding)
+    this.liveChart.updateSeries([
+      {
+        name: 'Solar Output',
+        data: this.solarHistory
       },
-      series: [
-        {
-          name: 'Solar Output',
-          data: this.solarHistory
-        },
-        {
-          name: 'Grid Demand',
-          data: this.gridHistory
-        }
-      ]
-    }, false, true);
+      {
+        name: 'Grid Demand',
+        data: this.gridHistory
+      }
+    ], true);
   }
 
   updateCategoryData(breakdownObj) {

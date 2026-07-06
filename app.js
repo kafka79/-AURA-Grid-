@@ -9,6 +9,9 @@ class AppController {
     this.state = structuredClone(INITIAL_STATE);
     this.destroyed = false;
 
+    // Cache of rendered values to eliminate DOM text/HTML reads (prevents layout thrashing/reflow)
+    this.renderedCache = new Map();
+
     this.map = null;
     this.charts = null;
     this.alertsManager = null;
@@ -82,19 +85,31 @@ class AppController {
     this.tick(true);
   }
 
+  updateState(fn) {
+    const nextState = structuredClone(this.state);
+    fn(nextState);
+    this.state = nextState;
+  }
+
   bindCockpitEvents() {
     this.dom.timeInput.addEventListener('input', (e) => {
-      this.state.timeOfDay = parseFloat(e.target.value);
+      this.updateState(state => {
+        state.timeOfDay = parseFloat(e.target.value);
+      });
       this.tick(true); // force update, don't advance time
     });
 
     this.dom.tempInput.addEventListener('input', (e) => {
-      this.state.temperature = parseInt(e.target.value);
+      this.updateState(state => {
+        state.temperature = parseInt(e.target.value);
+      });
       this.tick(true);
     });
 
     this.dom.occupancyInput.addEventListener('input', (e) => {
-      this.state.occupancy = parseInt(e.target.value);
+      this.updateState(state => {
+        state.occupancy = parseInt(e.target.value);
+      });
       this.tick(true);
     });
 
@@ -104,13 +119,17 @@ class AppController {
           if (b !== btn) b.classList.remove('active');
         });
         btn.classList.add('active');
-        this.state.weather = btn.getAttribute('data-weather');
+        this.updateState(state => {
+          state.weather = btn.getAttribute('data-weather');
+        });
         this.tick(true);
       });
     });
 
     this.dom.smartGridInput.addEventListener('change', (e) => {
-      this.state.smartGridActive = e.target.checked;
+      this.updateState(state => {
+        state.smartGridActive = e.target.checked;
+      });
       this.tick(true);
     });
   }
@@ -129,8 +148,10 @@ class AppController {
         const ticks = Math.min(50, Math.floor(elapsed / this.tickInterval));
         this.lastTickTime = now;
         
-        // Advance simulation with precise ticks
-        updateSimulation(this.state, ticks * this.simSpeed);
+        // Advance simulation with precise ticks using immutable state assignment
+        this.updateState(state => {
+          updateSimulation(state, ticks * this.simSpeed);
+        });
         this.tick(false);
       }
       
@@ -147,14 +168,31 @@ class AppController {
   }
 
   handleAlertResolve(alertId) {
-    resolveAlertAction(this.state, alertId);
+    this.updateState(state => {
+      resolveAlertAction(state, alertId);
+    });
     this.tick(true);
   }
 
-  // Helper function for dirty-checking DOM string updates (reduces layout computations)
+  // Helper function for dirty-checking DOM string updates via local cache (eliminates forced reflows)
   updateDOMText(element, value) {
-    if (element && element.textContent !== value) {
-      element.textContent = value;
+    if (element) {
+      const cached = this.renderedCache.get(element);
+      if (cached !== value) {
+        element.textContent = value;
+        this.renderedCache.set(element, value);
+      }
+    }
+  }
+
+  // Helper function for HTML dirty-checking to prevent forced layouts
+  updateDOMHTML(element, value) {
+    if (element) {
+      const cached = this.renderedCache.get(element);
+      if (cached !== value) {
+        element.innerHTML = value;
+        this.renderedCache.set(element, value);
+      }
     }
   }
 
@@ -247,7 +285,7 @@ class AppController {
       this.charts.updateLiveHistory(
         this.state.solarGeneration,
         this.state.gridDemand,
-        simTimeFormatted
+        this.state.timeOfDay
       );
     }
     
@@ -277,9 +315,7 @@ class AppController {
     this.updateDOMText(this.dom.detailTitle, b.name);
     
     const statusBadgeHTML = `<span class="detail-badge ${badgeClass}">${b.state}</span>`;
-    if (this.dom.detailStatus.innerHTML !== statusBadgeHTML) {
-      this.dom.detailStatus.innerHTML = statusBadgeHTML;
-    }
+    this.updateDOMHTML(this.dom.detailStatus, statusBadgeHTML);
     
     this.updateDOMText(this.dom.detailLoad, `${b.load.toFixed(1)} kW`);
     this.updateDOMText(this.dom.detailCapacity, `${b.maxCapacity} kW`);

@@ -45,6 +45,7 @@ export const INITIAL_STATE = {
       currentTemp: 22.0, // Thermodynamic inertia tracking
       maxCapacity: 400,
       occupancyRatio: 0.8,
+      occupancyProfile: 'academic',
       state: 'normal', // 'normal', 'peak', 'critical'
       categoryBreakdown: { hvac: 45, lights: 15, equipment: 30, servers: 10 } // percentage
     },
@@ -57,6 +58,7 @@ export const INITIAL_STATE = {
       currentTemp: 21.0, // Thermodynamic inertia tracking
       maxCapacity: 300,
       occupancyRatio: 0.7,
+      occupancyProfile: 'academic',
       state: 'normal',
       categoryBreakdown: { hvac: 40, lights: 10, equipment: 45, servers: 5 }
     },
@@ -69,6 +71,7 @@ export const INITIAL_STATE = {
       currentTemp: 20.0, // Thermodynamic inertia tracking
       maxCapacity: 150,
       occupancyRatio: 0.3,
+      occupancyProfile: 'library',
       state: 'peak',
       categoryBreakdown: { hvac: 65, lights: 20, equipment: 10, servers: 5 }
     },
@@ -81,6 +84,7 @@ export const INITIAL_STATE = {
       currentTemp: 23.0, // Thermodynamic inertia tracking
       maxCapacity: 500,
       occupancyRatio: 0.6,
+      occupancyProfile: 'hostels',
       state: 'normal',
       categoryBreakdown: { hvac: 35, lights: 40, equipment: 25, servers: 0 }
     },
@@ -93,6 +97,7 @@ export const INITIAL_STATE = {
       currentTemp: 22.0, // Thermodynamic inertia tracking
       maxCapacity: 120,
       occupancyRatio: 0.9,
+      occupancyProfile: 'admin',
       state: 'normal',
       categoryBreakdown: { hvac: 50, lights: 25, equipment: 20, servers: 5 }
     }
@@ -101,6 +106,31 @@ export const INITIAL_STATE = {
   // Power grids totals
   solarGeneration: 220,
   gridDemand: 460
+};
+
+// Extensible and modular profiles map
+export const OCCUPANCY_PROFILES = {
+  hostels: (hour) => {
+    if (hour >= 23 || hour < 6) return 0.95;
+    if (hour >= 6 && hour < 9) return 0.8;
+    if (hour >= 18 && hour < 23) return 0.85;
+    return 0.2;
+  },
+  admin: (hour) => {
+    if (hour >= 8 && hour < 18) return 0.9;
+    return 0.05;
+  },
+  library: (hour) => {
+    if (hour >= 8 && hour < 24) {
+      return 0.2 + 0.7 * Math.sin((hour - 8) / 16 * Math.PI);
+    }
+    return 0.02;
+  },
+  academic: (hour) => {
+    if (hour >= 9 && hour < 17) return 0.85;
+    if (hour >= 17 && hour < 21) return 0.3;
+    return 0.05;
+  }
 };
 
 export function updateSimulation(state, deltaTimeHours = 0.05) {
@@ -121,12 +151,33 @@ export function updateSimulation(state, deltaTimeHours = 0.05) {
     solarMultiplier = Math.sin(angle);
   }
 
-  // Adjust for weather
+  // Adjust for weather with added realistic atmospheric noise and cloud turbulence
   let weatherFactor = 1.0;
-  if (state.weather === 'cloudy') weatherFactor = 0.35;
-  if (state.weather === 'rainy') weatherFactor = 0.08;
+  let weatherNoise = 0;
+  
+  if (state.weather === 'sunny') {
+    weatherFactor = 1.0;
+    // Tiny atmospheric scintillation (1-2% noise)
+    weatherNoise = Math.sin(state.timeOfDay * 15) * 0.015;
+  } else if (state.weather === 'cloudy') {
+    weatherFactor = 0.35;
+    // Dynamic cloud shading variation (up to 8% variance)
+    weatherNoise = Math.sin(state.timeOfDay * 8) * 0.06;
+  } else if (state.weather === 'rainy') {
+    weatherFactor = 0.08;
+    // Heavy rain attenuation noise
+    weatherNoise = Math.sin(state.timeOfDay * 12) * 0.02;
+  }
 
-  state.solarGeneration = maxSolarPeak * solarMultiplier * weatherFactor;
+  // Early morning / late afternoon dampening factor (atmospheric scatter when sun angle is low)
+  let scatteringFactor = 1.0;
+  if (state.timeOfDay >= 6.0 && state.timeOfDay < 8.0) {
+    scatteringFactor = (state.timeOfDay - 6.0) / 2.0; // linear ramp-up 0 to 1
+  } else if (state.timeOfDay > 16.0 && state.timeOfDay <= 18.0) {
+    scatteringFactor = (18.0 - state.timeOfDay) / 2.0; // linear ramp-down 1 to 0
+  }
+
+  state.solarGeneration = maxSolarPeak * solarMultiplier * Math.max(0, weatherFactor + weatherNoise) * scatteringFactor;
   if (state.solarGeneration < 0) state.solarGeneration = 0;
 
   // 3. Compute each building's live load
@@ -136,51 +187,33 @@ export function updateSimulation(state, deltaTimeHours = 0.05) {
     const b = state.buildings[id];
     if (!b) return;
     
-    // Hourly occupancy curve for building type
-    let hourlyOccupancy = 0;
-    const hour = state.timeOfDay;
-    
-    if (id === 'building-hostels') {
-      if (hour >= 23 || hour < 6) hourlyOccupancy = 0.95;
-      else if (hour >= 6 && hour < 9) hourlyOccupancy = 0.8;
-      else if (hour >= 18 && hour < 23) hourlyOccupancy = 0.85;
-      else hourlyOccupancy = 0.2;
-    } else if (id === 'building-admin') {
-      if (hour >= 8 && hour < 18) hourlyOccupancy = 0.9;
-      else hourlyOccupancy = 0.05;
-    } else if (id === 'building-library') {
-      if (hour >= 8 && hour < 24) {
-        hourlyOccupancy = 0.2 + 0.7 * Math.sin((hour - 8) / 16 * Math.PI);
-      } else {
-        hourlyOccupancy = 0.02;
-      }
-    } else {
-      if (hour >= 9 && hour < 17) {
-        hourlyOccupancy = 0.85;
-      } else if (hour >= 17 && hour < 21) {
-        hourlyOccupancy = 0.3;
-      } else {
-        hourlyOccupancy = 0.05;
-      }
-    }
+    // Hourly occupancy curve resolved dynamically from the data-driven building profile
+    const profile = b.occupancyProfile || 'academic';
+    const hourlyOccupancy = OCCUPANCY_PROFILES[profile](state.timeOfDay);
 
     // Blend user slider occupancy settings
     const currentOccupancyRatio = hourlyOccupancy * (state.occupancy / 100);
     b.occupancyRatio = currentOccupancyRatio;
 
-    // --- Thermodynamic Inertia Model ---
+    // --- First-Principles Stable Thermodynamic Integration ---
     // In nature, internal temp drifts towards outdoor temperature.
     // HVAC counteracts this and pulls internal temp towards hvacSet.
     const thermalLossCoeff = 0.18; // environment exchange speed per hour
     const hvacResponseCoeff = 0.75; // HVAC correction speed per hour
     
-    const envDrift = (state.temperature - b.currentTemp) * thermalLossCoeff * deltaTimeHours;
-    const hvacCorrection = (b.hvacSet - b.currentTemp) * hvacResponseCoeff * deltaTimeHours;
+    // Stable Analytical Solution for: T' = - (k_env + k_hvac) * T + (k_env * T_out + k_hvac * T_set)
+    const kEnv = thermalLossCoeff;
+    const kHvac = hvacResponseCoeff;
+    const B = kEnv + kHvac;
+    const A = kEnv * state.temperature + kHvac * b.hvacSet;
+    const steadyStateTemp = A / B;
+
+    // T(t) = T_steady + (T_initial - T_steady) * e^(-B * t)
+    b.currentTemp = steadyStateTemp + (b.currentTemp - steadyStateTemp) * Math.exp(-B * deltaTimeHours);
     
-    b.currentTemp += envDrift + hvacCorrection;
-    
-    // HVAC work load is proportional to the correction effort & weather leak counteraction
-    const hvacThermalEffort = Math.abs(hvacCorrection) * 11.5 + Math.abs(envDrift) * 3.5;
+    // HVAC work load (kW) is proportional to instantaneous rate of cooling/heating needed
+    // This is mathematically correct and independent of deltaTimeHours (instantaneous power draw, not integrated delta)
+    const hvacThermalEffort = Math.abs(b.hvacSet - b.currentTemp) * kHvac * 11.5 + Math.abs(state.temperature - b.currentTemp) * kEnv * 3.5;
     const hvacLoad = hvacThermalEffort * (1.0 + currentOccupancyRatio * 0.5);
 
     // Equipment and Lighting loads
@@ -268,7 +301,7 @@ export function updateSimulation(state, deltaTimeHours = 0.05) {
       }
     }
   } else {
-    // Dumb Battery Mode: Only charge with excess solar, never discharge/offpeak charge
+    // Dumb Battery Mode: Charge with excess solar, and discharge to cover deficit (no smart scheduling)
     if (netPower > 0) {
       const chargeRoom = state.batteryCapacityKwh - state.batteryCurrentKwh;
       const chargeSpeed = Math.min(netPower, 100);
@@ -282,6 +315,14 @@ export function updateSimulation(state, deltaTimeHours = 0.05) {
         state.batteryCarbonIntensity = (prevKwh * state.batteryCarbonIntensity) / state.batteryCurrentKwh;
       }
       batteryActivity = chargeSpeed;
+    } else if (state.batteryCurrentKwh > (state.batteryCapacityKwh * 0.15)) {
+      // Basic discharge to cover campus deficit
+      const drawDemand = Math.abs(netPower);
+      const dischargeSpeed = Math.min(drawDemand, 100);
+      const drawnEnergy = dischargeSpeed * deltaTimeHours;
+      
+      state.batteryCurrentKwh = Math.max(state.batteryCapacityKwh * 0.15, state.batteryCurrentKwh - drawnEnergy);
+      batteryActivity = -dischargeSpeed;
     }
   }
 
