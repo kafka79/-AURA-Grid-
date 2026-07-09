@@ -359,6 +359,11 @@ export function updateSimulation(state, deltaTimeHours = 0.05) {
   // 7. Dynamic Alert Generator
   triggerDynamicAlerts(state);
 
+  // ponytail: auto-resolve triggered alerts when smart grid automation is active
+  if (state.smartGridActive) {
+    state.alerts.filter(a => !a.resolved).map(a => a.id).forEach(id => resolveAlertAction(state, id));
+  }
+
   return state;
 }
 

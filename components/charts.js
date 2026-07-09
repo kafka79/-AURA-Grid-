@@ -45,19 +45,8 @@ export class DashboardCharts {
       setupFallback(this.liveChartId, 'Live Energy Trend Chart');
       setupFallback(this.donutChartId, 'System Load Breakdown Donut');
 
-      // Setup mock stubs to allow the application execution flow to continue without crashes
-      this.liveChart = {
-        render: () => {},
-        updateOptions: () => {},
-        w: { config: { series: [] } }
-      };
-
-      this.donutChart = {
-        render: () => {},
-        updateSeries: () => {},
-        w: { config: { series: [] } }
-      };
-
+      this.liveChart = null;
+      this.donutChart = null;
       return;
     }
 
@@ -225,6 +214,7 @@ export class DashboardCharts {
   }
 
   updateLiveHistory(solarKW, gridKW, decimalTime) {
+    if (!this.liveChart) return; // ponytail: check if chart initialized
     if (this.solarHistory.length > 0) {
       const prevX = this.solarHistory[this.solarHistory.length - 1].x;
       const prevTimeOfDay = prevX - this.timeOffset;
@@ -257,7 +247,7 @@ export class DashboardCharts {
   }
 
   updateCategoryData(breakdownObj) {
-    if (!breakdownObj) return;
+    if (!this.donutChart || !breakdownObj) return; // ponytail: check if chart initialized
     
     const hvacVal = Math.round(breakdownObj.hvac);
     const lightsVal = Math.round(breakdownObj.lights);
