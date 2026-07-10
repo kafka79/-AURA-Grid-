@@ -205,8 +205,8 @@ export function updateSimulation(state, deltaTimeHours = 0.05) {
     const kEnv = thermalLossCoeff;
     const kHvac = hvacResponseCoeff;
     const B = kEnv + kHvac;
-    const A = kEnv * state.temperature + kHvac * b.hvacSet;
-    const steadyStateTemp = A / B;
+    // ponytail: steadyStateTemp is hvacSet due to integral feedback controller action
+    const steadyStateTemp = b.hvacSet;
 
     // T(t) = T_steady + (T_initial - T_steady) * e^(-B * t)
     b.currentTemp = steadyStateTemp + (b.currentTemp - steadyStateTemp) * Math.exp(-B * deltaTimeHours);
@@ -271,7 +271,8 @@ export function updateSimulation(state, deltaTimeHours = 0.05) {
           // Solar has 0 carbon footprint
           state.batteryCarbonIntensity = (prevKwh * state.batteryCarbonIntensity) / state.batteryCurrentKwh;
         }
-        batteryActivity = chargeSpeed;
+        // ponytail: calculate actual average power drawn over step to conserve energy
+        batteryActivity = actualAdded / (deltaTimeHours * eff);
       }
     } else {
       // Power deficit
@@ -281,8 +282,11 @@ export function updateSimulation(state, deltaTimeHours = 0.05) {
         const dischargeSpeed = Math.min(drawDemand, 120); // max discharge 120kW
         const drawnEnergy = dischargeSpeed * deltaTimeHours;
         
+        const prevKwh = state.batteryCurrentKwh;
         state.batteryCurrentKwh = Math.max(state.batteryCapacityKwh * 0.15, state.batteryCurrentKwh - drawnEnergy);
-        batteryActivity = -dischargeSpeed;
+        const actualDrawn = prevKwh - state.batteryCurrentKwh;
+        // ponytail: actual average power delivered
+        batteryActivity = - (actualDrawn / deltaTimeHours);
       } else if (isOffPeakChargingHour && state.batteryCharge < 85) {
         // Grid off-peak charging (lower rate carbon profile)
         const chargeSpeed = 80; // 80kW rate
@@ -297,7 +301,8 @@ export function updateSimulation(state, deltaTimeHours = 0.05) {
           const chargedIntensity = OFFPEAK_GRID_CARBON / eff;
           state.batteryCarbonIntensity = (prevKwh * state.batteryCarbonIntensity + actualAdded * chargedIntensity) / state.batteryCurrentKwh;
         }
-        batteryActivity = chargeSpeed;
+        // ponytail: actual average power drawn
+        batteryActivity = actualAdded / (deltaTimeHours * eff);
       }
     }
   } else {
@@ -314,15 +319,19 @@ export function updateSimulation(state, deltaTimeHours = 0.05) {
       if (actualAdded > 0) {
         state.batteryCarbonIntensity = (prevKwh * state.batteryCarbonIntensity) / state.batteryCurrentKwh;
       }
-      batteryActivity = chargeSpeed;
+      // ponytail: actual average power drawn
+      batteryActivity = actualAdded / (deltaTimeHours * eff);
     } else if (state.batteryCurrentKwh > (state.batteryCapacityKwh * 0.15)) {
       // Basic discharge to cover campus deficit
       const drawDemand = Math.abs(netPower);
       const dischargeSpeed = Math.min(drawDemand, 100);
       const drawnEnergy = dischargeSpeed * deltaTimeHours;
       
+      const prevKwh = state.batteryCurrentKwh;
       state.batteryCurrentKwh = Math.max(state.batteryCapacityKwh * 0.15, state.batteryCurrentKwh - drawnEnergy);
-      batteryActivity = -dischargeSpeed;
+      const actualDrawn = prevKwh - state.batteryCurrentKwh;
+      // ponytail: actual average power delivered
+      batteryActivity = - (actualDrawn / deltaTimeHours);
     }
   }
 
@@ -372,34 +381,44 @@ function triggerDynamicAlerts(state) {
   const thresholdEng = state.alertThresholdEngLoad !== undefined ? state.alertThresholdEngLoad : 0.88;
 
   // Thermal Grid Stress alert trigger
-  if (state.temperature >= thresholdTemp && !state.alerts.find(a => a.id === 'alert-heatwave')) {
-    state.alerts.unshift({
-      id: 'alert-heatwave',
-      buildingId: 'building-engineering',
-      level: 'critical',
-      title: 'Grid Thermal Stress',
-      desc: `High temperatures (>=${thresholdTemp}°C) causing heavy HVAC draw in laboratories.`,
-      time: formatSimTime(state.timeOfDay),
-      actionId: 'optimize-temp-limit',
-      actionLabel: 'Increase HVAC Setpoint',
-      resolved: false
-    });
+  if (state.temperature >= thresholdTemp) {
+    if (!state.alerts.find(a => a.id === 'alert-heatwave')) {
+      state.alerts.unshift({
+        id: 'alert-heatwave',
+        buildingId: 'building-engineering',
+        level: 'critical',
+        title: 'Grid Thermal Stress',
+        desc: `High temperatures (>=${thresholdTemp}°C) causing heavy HVAC draw in laboratories.`,
+        time: formatSimTime(state.timeOfDay),
+        actionId: 'optimize-temp-limit',
+        actionLabel: 'Increase HVAC Setpoint',
+        resolved: false
+      });
+    }
+  } else {
+    // ponytail: remove alert when environmental conditions return to normal
+    state.alerts = state.alerts.filter(a => a.id !== 'alert-heatwave');
   }
 
   // Lab Overload Warning alert trigger
   const eng = state.buildings['building-engineering'];
-  if (eng && (eng.load / eng.maxCapacity >= thresholdEng) && !state.alerts.find(a => a.id === 'alert-engineering-overload')) {
-    state.alerts.unshift({
-      id: 'alert-engineering-overload',
-      buildingId: 'building-engineering',
-      level: 'critical',
-      title: 'Lab Overload Warning',
-      desc: `Engineering Block load has crossed warning limit of ${Math.round(thresholdEng * 100)}%.`,
-      time: formatSimTime(state.timeOfDay),
-      actionId: 'shed-engineering-labs',
-      actionLabel: 'Shed Secondary Labs',
-      resolved: false
-    });
+  if (eng && (eng.load / eng.maxCapacity >= thresholdEng)) {
+    if (!state.alerts.find(a => a.id === 'alert-engineering-overload')) {
+      state.alerts.unshift({
+        id: 'alert-engineering-overload',
+        buildingId: 'building-engineering',
+        level: 'critical',
+        title: 'Lab Overload Warning',
+        desc: `Engineering Block load has crossed warning limit of ${Math.round(thresholdEng * 100)}%.`,
+        time: formatSimTime(state.timeOfDay),
+        actionId: 'shed-engineering-labs',
+        actionLabel: 'Shed Secondary Labs',
+        resolved: false
+      });
+    }
+  } else {
+    // ponytail: remove alert when load returns to normal
+    state.alerts = state.alerts.filter(a => a.id !== 'alert-engineering-overload');
   }
 }
 
@@ -415,26 +434,27 @@ export function formatSimTime(decimalTime) {
 export function resolveAlertAction(state, alertId) {
   const alertIndex = state.alerts.findIndex(a => a.id === alertId);
   if (alertIndex !== -1) {
-    state.alerts[alertIndex].resolved = true;
+    const alert = state.alerts[alertIndex];
+    alert.resolved = true;
+    const actionId = alert.actionId;
     
     // Perform simulated correction shifts immediately
-    if (alertId === 'optimize-library-hvac') {
+    if (actionId === 'optimize-library-hvac') {
       if (state.buildings['building-library']) {
         state.buildings['building-library'].hvacSet = 23; // shift temp upward
       }
-    } else if (alertId === 'optimize-temp-limit') {
+    } else if (actionId === 'optimize-temp-limit') {
       Object.keys(state.buildings).forEach(id => {
         if (state.buildings[id]) {
           state.buildings[id].hvacSet += 2; // offset setpoints for massive grid relief
         }
       });
-      // Remove alert
-      state.alerts = state.alerts.filter(a => a.id !== alertId);
-    } else if (alertId === 'shed-engineering-labs') {
+      // ponytail: keep resolved alert in state.alerts to prevent recreation feedback loop
+    } else if (actionId === 'shed-engineering-labs') {
       if (state.buildings['building-engineering']) {
         state.buildings['building-engineering'].baseLoad = 35; // lower base line load
       }
-      state.alerts = state.alerts.filter(a => a.id !== alertId);
+      // ponytail: keep resolved alert in state.alerts to prevent recreation feedback loop
     }
   }
 }

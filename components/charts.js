@@ -215,12 +215,37 @@ export class DashboardCharts {
 
   updateLiveHistory(solarKW, gridKW, decimalTime) {
     if (!this.liveChart) return; // ponytail: check if chart initialized
+    
+    let isDiscontinuity = false;
     if (this.solarHistory.length > 0) {
       const prevX = this.solarHistory[this.solarHistory.length - 1].x;
       const prevTimeOfDay = prevX - this.timeOffset;
-      if (decimalTime < prevTimeOfDay) {
-        // Wrapped around midnight! Offset to prevent reverse line tracing
-        this.timeOffset += 24;
+      const diff = decimalTime - prevTimeOfDay;
+      
+      if (diff < 0) {
+        if (prevTimeOfDay > 23.0 && decimalTime < 1.0) {
+          // Wrapped around midnight! Offset to prevent reverse line tracing
+          this.timeOffset += 24;
+        } else {
+          isDiscontinuity = true;
+        }
+      } else if (diff > 1.0) {
+        // Large forward jump
+        isDiscontinuity = true;
+      }
+    }
+
+    if (isDiscontinuity) {
+      // ponytail: reset chart history on manual time jump to prevent graph corruption
+      this.solarHistory = [];
+      this.gridHistory = [];
+      this.timeOffset = 0;
+      const startHour = decimalTime;
+      const interval = 0.08;
+      for (let i = 0; i < this.historyMaxLength; i++) {
+        const x = startHour - (this.historyMaxLength - 1 - i) * interval;
+        this.solarHistory.push({ x: x, y: 0 });
+        this.gridHistory.push({ x: x, y: 0 });
       }
     }
 

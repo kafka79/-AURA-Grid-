@@ -86,9 +86,7 @@ class AppController {
   }
 
   updateState(fn) {
-    const nextState = structuredClone(this.state);
-    fn(nextState);
-    this.state = nextState;
+    fn(this.state);
   }
 
   bindCockpitEvents() {
