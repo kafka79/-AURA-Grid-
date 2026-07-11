@@ -1,15 +1,14 @@
-import { INITIAL_STATE, updateSimulation, resolveAlertAction, formatSimTime } from './components/simulator.js';
+import { SimulationEngine } from './components/simulator.js';
 import { CampusMap } from './components/map.js';
 import { DashboardCharts } from './components/charts.js';
 import { AlertManager } from './components/alerts.js';
 
 class AppController {
   constructor() {
-    // 1. Clean state management using structured clone to avoid mutability reference bugs
-    this.state = structuredClone(INITIAL_STATE);
+    this.engine = new SimulationEngine();
     this.destroyed = false;
 
-    // Cache of rendered values to eliminate DOM text/HTML reads (prevents layout thrashing/reflow)
+    // Cache of rendered values to eliminate DOM reads
     this.renderedCache = new Map();
 
     this.map = null;
@@ -17,19 +16,20 @@ class AppController {
     this.alertsManager = null;
     
     this.selectedBuildingId = null;
-    this.simSpeed = 0.08; // fraction of hours to advance per tick
+    this.simSpeed = 0.08; // Fraction of hours to advance per tick
     
-    // Self-correcting drift-free loop fields
-    this.lastTickTime = Date.now();
+    // Timer details
     this.tickInterval = 1200; // ms
+    this.lastTickTime = performance.now();
+    this.timer = null;
     
     // Ranks tracker to prevent leaderboard layout thrashing
     this.lastRanksOrder = '';
 
-    // 2. Perform element caching in constructor to eliminate repeat query selectors
+    // Cache elements
     this.cacheDOM();
 
-    // 3. Initialize Components
+    // Initialize Components and state subscriptions
     this.init();
   }
 
@@ -42,9 +42,9 @@ class AppController {
       
       labelTime: document.getElementById('label-time'),
       sliderLabelTime: document.getElementById('slider-label-time'),
-      labelTemp: document.getElementById('label-temp'),
+      labelTemp: document.getElementById('label-temp'), // null or slider label
       sliderLabelTemp: document.getElementById('slider-label-temp'),
-      labelOccupancy: document.getElementById('label-occupancy'),
+      labelOccupancy: document.getElementById('label-occupancy'), // null or slider label
       sliderLabelOccupancy: document.getElementById('slider-label-occupancy'),
       
       totalLoad: document.getElementById('metric-total-load'),
@@ -65,50 +65,48 @@ class AppController {
       detailTemp: document.getElementById('detail-temp'),
       
       leaderboardList: document.getElementById('leaderboard-list'),
-      weatherBtns: document.querySelectorAll('.weather-btn')
+      weatherBtns: document.querySelectorAll('.weather-btn'),
+      resetBtn: document.getElementById('btn-reset-grid'),
+      gridStatusText: document.getElementById('grid-status-text'),
+      chartLiveBtn: document.getElementById('btn-chart-live'),
+      chart24hBtn: document.getElementById('btn-chart-24h')
     };
   }
 
   init() {
-    // Initialize components passing callbacks (no global state pollution)
     this.map = new CampusMap('map-container', (id) => this.handleBuildingSelect(id));
     this.charts = new DashboardCharts('live-chart', 'donut-chart');
     this.alertsManager = new AlertManager('alerts-list', (id) => this.handleAlertResolve(id));
 
-    // Bind Event Listeners for cockpit controls
     this.bindCockpitEvents();
 
-    // Start simulation tick loop
+    // Subscribe to engine state notifications
+    this.unsubscribe = this.engine.subscribe((state) => {
+      this.state = state;
+      this.tick();
+    });
+
+    // Start Simulation Loop
     this.startSimulation();
-
-    // Initial rendering tick
-    this.tick(true);
-  }
-
-  updateState(fn) {
-    fn(this.state);
   }
 
   bindCockpitEvents() {
     this.dom.timeInput.addEventListener('input', (e) => {
-      this.updateState(state => {
+      this.engine.updateState(state => {
         state.timeOfDay = parseFloat(e.target.value);
       });
-      this.tick(true); // force update, don't advance time
     });
 
     this.dom.tempInput.addEventListener('input', (e) => {
-      this.updateState(state => {
+      this.engine.updateState(state => {
         state.temperature = parseInt(e.target.value);
       });
-      this.tick(true);
     });
 
     this.dom.occupancyInput.addEventListener('input', (e) => {
-      this.updateState(state => {
+      this.engine.updateState(state => {
         state.occupancy = parseInt(e.target.value);
       });
-      this.tick(true);
     });
 
     this.dom.weatherBtns.forEach(btn => {
@@ -117,46 +115,52 @@ class AppController {
           if (b !== btn) b.classList.remove('active');
         });
         btn.classList.add('active');
-        this.updateState(state => {
+        this.engine.updateState(state => {
           state.weather = btn.getAttribute('data-weather');
         });
-        this.tick(true);
       });
     });
 
     this.dom.smartGridInput.addEventListener('change', (e) => {
-      this.updateState(state => {
+      this.engine.updateState(state => {
         state.smartGridActive = e.target.checked;
       });
-      this.tick(true);
     });
+
+    this.dom.resetBtn.addEventListener('click', () => {
+      this.engine.reset();
+      if (this.charts) {
+        this.charts.reset(this.state.timeOfDay);
+      }
+    });
+
+    if (this.dom.chartLiveBtn && this.dom.chart24hBtn) {
+      this.dom.chartLiveBtn.addEventListener('click', () => {
+        this.dom.chartLiveBtn.classList.add('active');
+        this.dom.chart24hBtn.classList.remove('active');
+        if (this.charts) this.charts.setMode('live');
+      });
+
+      this.dom.chart24hBtn.addEventListener('click', () => {
+        this.dom.chart24hBtn.classList.add('active');
+        this.dom.chartLiveBtn.classList.remove('active');
+        if (this.charts) this.charts.setMode('24h');
+      });
+    }
   }
 
   startSimulation() {
-    this.lastTickTime = Date.now();
-    
-    const run = () => {
+    this.lastTickTime = performance.now();
+    this.timer = setInterval(() => {
       if (this.destroyed) return;
+      const now = performance.now();
+      const elapsedMs = now - this.lastTickTime;
+      this.lastTickTime = now;
       
-      const now = Date.now();
-      const elapsed = now - this.lastTickTime;
-      
-      if (elapsed >= this.tickInterval) {
-        // self-correcting catchup delta step, capped to 50 intervals to prevent excessive jumps
-        const ticks = Math.min(50, Math.floor(elapsed / this.tickInterval));
-        this.lastTickTime = now;
-        
-        // Advance simulation with precise ticks using immutable state assignment
-        this.updateState(state => {
-          updateSimulation(state, ticks * this.simSpeed);
-        });
-        this.tick(false);
-      }
-      
-      requestAnimationFrame(run);
-    };
-    
-    requestAnimationFrame(run);
+      // Calculate hours advanced, ensuring exact physics mapping over the interval
+      const elapsedHours = (elapsedMs / this.tickInterval) * this.simSpeed;
+      this.engine.stepSimulation(elapsedHours);
+    }, this.tickInterval);
   }
 
   handleBuildingSelect(id) {
@@ -166,13 +170,31 @@ class AppController {
   }
 
   handleAlertResolve(alertId) {
-    this.updateState(state => {
-      resolveAlertAction(state, alertId);
+    this.engine.updateState(state => {
+      const alert = state.alerts.find(a => a.id === alertId);
+      if (alert && !alert.resolved) {
+        alert.resolved = true;
+        // Perform simulated correction shifts physically
+        const actionId = alert.actionId;
+        if (actionId === 'optimize-library-hvac') {
+          if (state.buildings['building-library']) {
+            state.buildings['building-library'].hvacSet = 23;
+          }
+        } else if (actionId === 'optimize-temp-limit') {
+          Object.keys(state.buildings).forEach(id => {
+            if (state.buildings[id]) {
+              state.buildings[id].hvacSet += 2;
+            }
+          });
+        } else if (actionId === 'shed-engineering-labs') {
+          if (state.buildings['building-engineering']) {
+            state.buildings['building-engineering'].baseLoad = 35;
+          }
+        }
+      }
     });
-    this.tick(true);
   }
 
-  // Helper function for dirty-checking DOM string updates via local cache (eliminates forced reflows)
   updateDOMText(element, value) {
     if (element) {
       const cached = this.renderedCache.get(element);
@@ -183,7 +205,6 @@ class AppController {
     }
   }
 
-  // Helper function for HTML dirty-checking to prevent forced layouts
   updateDOMHTML(element, value) {
     if (element) {
       const cached = this.renderedCache.get(element);
@@ -194,30 +215,24 @@ class AppController {
     }
   }
 
-  tick(manualIntervention = false) {
-    // Sync UI input values to current state
-    if (!manualIntervention && this.dom.timeInput) {
+  tick() {
+    if (!this.state) return;
+
+    // Sync input sliders to state
+    if (this.dom.timeInput && parseFloat(this.dom.timeInput.value).toFixed(1) !== this.state.timeOfDay.toFixed(1)) {
       this.dom.timeInput.value = this.state.timeOfDay;
     }
-    
-    // Update Slider Value Labels with dirty-checking
-    const simTimeFormatted = formatSimTime(this.state.timeOfDay);
-    this.updateDOMText(this.dom.labelTime, simTimeFormatted);
-    this.updateDOMText(this.dom.sliderLabelTime, simTimeFormatted);
-    
-    const tempText = `${this.state.temperature}°C`;
-    this.updateDOMText(this.dom.labelTemp, tempText);
-    this.updateDOMText(this.dom.sliderLabelTemp, tempText);
-    
-    const occupancyText = `${this.state.occupancy}%`;
-    this.updateDOMText(this.dom.labelOccupancy, occupancyText);
-    this.updateDOMText(this.dom.sliderLabelOccupancy, occupancyText);
-    
+    if (this.dom.tempInput && parseInt(this.dom.tempInput.value) !== this.state.temperature) {
+      this.dom.tempInput.value = this.state.temperature;
+    }
+    if (this.dom.occupancyInput && parseInt(this.dom.occupancyInput.value) !== this.state.occupancy) {
+      this.dom.occupancyInput.value = this.state.occupancy;
+    }
     if (this.dom.smartGridInput) {
       this.dom.smartGridInput.checked = this.state.smartGridActive;
     }
 
-    // Sync active weather buttons
+    // Sync weather button classes
     this.dom.weatherBtns.forEach(btn => {
       const active = btn.getAttribute('data-weather') === this.state.weather;
       if (active) {
@@ -227,38 +242,70 @@ class AppController {
       }
     });
 
-    // Compute metrics
+    // Format simulation times
+    const hours = Math.floor(this.state.timeOfDay);
+    const minutes = Math.floor((this.state.timeOfDay - hours) * 60);
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 === 0 ? 12 : hours % 12;
+    const minStr = minutes < 10 ? '0' + minutes : minutes;
+    const timeText = `${displayHours}:${minStr} ${ampm}`;
+
+    this.updateDOMText(this.dom.labelTime, timeText);
+    this.updateDOMText(this.dom.sliderLabelTime, timeText);
+
+    this.updateDOMText(this.dom.sliderLabelTemp, `${this.state.temperature}°C`);
+    this.updateDOMText(this.dom.sliderLabelOccupancy, `${this.state.occupancy}%`);
+
+    // Sum building loads dynamically
     let totalCampusLoad = 0;
     Object.keys(this.state.buildings).forEach(id => {
       const b = this.state.buildings[id];
       if (b) totalCampusLoad += b.load;
     });
 
-    // Update KPI panels using dirty-checking
+    // Update main KPI statistics
     this.updateDOMText(this.dom.totalLoad, `${totalCampusLoad.toFixed(1)} kW`);
     this.updateDOMText(this.dom.gridDemand, `${this.state.gridDemand.toFixed(1)} kW`);
     this.updateDOMText(this.dom.solar, `${this.state.solarGeneration.toFixed(1)} kW`);
     this.updateDOMText(this.dom.battery, `${Math.round(this.state.batteryCharge)}%`);
     this.updateDOMText(this.dom.carbon, `${this.state.accumulatedCarbonSaved.toFixed(1)} kg`);
-    
-    const activeAlerts = this.state.alerts.filter(a => !a.resolved).length;
-    this.updateDOMText(this.dom.alertsCount, activeAlerts.toString());
-    
+
+    const activeAlertsList = this.state.alerts.filter(a => !a.resolved);
+    const activeAlertsCount = activeAlertsList.length;
+    this.updateDOMText(this.dom.alertsCount, activeAlertsCount.toString());
+
+    // Update header status badge dynamically based on warnings/alerts
+    if (this.dom.gridStatusText) {
+      const hasCritical = activeAlertsList.some(a => a.level === 'critical');
+      const hasWarning = activeAlertsList.some(a => a.level === 'warning');
+      if (hasCritical) {
+        this.dom.gridStatusText.textContent = 'Grid Status: Critical Stress';
+        this.dom.gridStatusText.style.color = 'var(--color-red)';
+      } else if (hasWarning) {
+        this.dom.gridStatusText.textContent = 'Grid Status: Stressed';
+        this.dom.gridStatusText.style.color = 'var(--color-amber)';
+      } else {
+        this.dom.gridStatusText.textContent = 'Grid Status: Nominal';
+        this.dom.gridStatusText.style.color = 'var(--text-secondary)';
+      }
+    }
+
     if (this.dom.alertsIconContainer) {
-      if (activeAlerts > 0) {
-        this.dom.alertsIconContainer.className = 'pulse-dot red';
+      if (activeAlertsCount > 0) {
+        const hasCritical = activeAlertsList.some(a => a.level === 'critical');
+        this.dom.alertsIconContainer.className = hasCritical ? 'pulse-dot red' : 'pulse-dot amber';
       } else {
         this.dom.alertsIconContainer.className = 'pulse-dot green';
       }
     }
 
-    // Update battery charge progress style
+    // Battery progress styling updates
     if (this.dom.batteryProgress) {
-      const widthVal = `${this.state.batteryCharge}%`;
-      if (this.dom.batteryProgress.style.width !== widthVal) {
-        this.dom.batteryProgress.style.width = widthVal;
+      const chargePct = `${this.state.batteryCharge}%`;
+      if (this.dom.batteryProgress.style.width !== chargePct) {
+        this.dom.batteryProgress.style.width = chargePct;
       }
-      
+
       let colorVal = 'var(--color-green)';
       if (this.state.batteryCharge < 20) {
         colorVal = 'var(--color-red)';
@@ -271,23 +318,20 @@ class AppController {
       }
     }
 
-    // Refresh child map and alert manager
+    // Render alerts list and map states
     this.map.updateMapStates(this.state.buildings, this.state.solarGeneration);
     this.alertsManager.render(this.state.alerts);
-    
+
     this.updateBuildingDetailView();
     this.updateLeaderboard();
-    
-    // Only feed streaming chart historical buffer on simulation clocks, not manual inputs
-    if (!manualIntervention) {
-      this.charts.updateLiveHistory(
-        this.state.solarGeneration,
-        this.state.gridDemand,
-        this.state.timeOfDay
-      );
-    }
-    
     this.updateCategoryDonut();
+
+    // Stream charts historical buffer
+    this.charts.updateLiveHistory(
+      this.state.solarGeneration,
+      this.state.gridDemand,
+      this.state.timeOfDay
+    );
   }
 
   updateBuildingDetailView() {
@@ -305,15 +349,14 @@ class AppController {
       this.dom.overlay.classList.add('active');
     }
 
-    // Select status badge template
     let badgeClass = 'normal';
     if (b.state === 'peak') badgeClass = 'peak';
     if (b.state === 'critical') badgeClass = 'warning';
 
     this.updateDOMText(this.dom.detailTitle, b.name);
     
-    const statusBadgeHTML = `<span class="detail-badge ${badgeClass}">${b.state}</span>`;
-    this.updateDOMHTML(this.dom.detailStatus, statusBadgeHTML);
+    const badgeHTML = `<span class="detail-badge ${badgeClass}">${b.state}</span>`;
+    this.updateDOMHTML(this.dom.detailStatus, badgeHTML);
     
     this.updateDOMText(this.dom.detailLoad, `${b.load.toFixed(1)} kW`);
     this.updateDOMText(this.dom.detailCapacity, `${b.maxCapacity} kW`);
@@ -322,12 +365,10 @@ class AppController {
   }
 
   updateCategoryDonut() {
-    // If a building is selected, show its specific breakdown, otherwise show cumulative campus average
     if (this.selectedBuildingId && this.state.buildings[this.selectedBuildingId]) {
       const b = this.state.buildings[this.selectedBuildingId];
       this.charts.updateCategoryData(b.categoryBreakdown);
     } else {
-      // Aggregate cumulative campus breakdown
       let tHvac = 0, tLights = 0, tEquip = 0, tServ = 0, tLoad = 0;
       Object.keys(this.state.buildings).forEach(id => {
         const b = this.state.buildings[id];
@@ -352,22 +393,19 @@ class AppController {
   }
 
   updateLeaderboard() {
-    // Calculate efficiency ratio: load / maxCapacity (lower ratio = more efficient)
     const buildingsArr = Object.keys(this.state.buildings).map(id => {
       const b = this.state.buildings[id];
       const ratio = b.load / b.maxCapacity;
       return {
-        id: id,
+        id,
         name: b.name,
-        ratio: ratio,
+        ratio,
         percentage: Math.round(ratio * 100)
       };
     });
 
-    // Sort by efficiency (increasing ratio)
     buildingsArr.sort((a, b) => a.ratio - b.ratio);
 
-    // Diff-driven DOM update: Only rewrite innerHTML template if order of ranks changed
     const currentOrderStr = buildingsArr.map(b => b.id).join(',');
     
     if (currentOrderStr !== this.lastRanksOrder) {
@@ -384,7 +422,7 @@ class AppController {
               <span class="rank-num">#${idx + 1}</span>
               <span>${b.name}</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 10px; flex-grow: 1; max-width: 140px; margin-left: 10px;">
+            <div class="leaderboard-progress-container" style="display: flex; align-items: center; gap: 10px; flex-grow: 1; max-width: 140px; margin-left: 10px;">
               <div style="height: 6px; width: 100%; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden;">
                 <div class="leaderboard-bar" style="height: 100%; width: ${b.percentage}%; background: ${colorClass}; border-radius: 3px;"></div>
               </div>
@@ -396,7 +434,6 @@ class AppController {
         `;
       }).join('');
     } else {
-      // In-place update of values/styles to avoid DOM rebuilding
       buildingsArr.forEach(b => {
         const itemEl = this.dom.leaderboardList.querySelector(`[data-building-id="${b.id}"]`);
         if (!itemEl) return;
@@ -430,10 +467,11 @@ class AppController {
 
   destroy() {
     this.destroyed = true;
+    if (this.timer) clearInterval(this.timer);
+    if (this.unsubscribe) this.unsubscribe();
   }
 }
 
-// Instantiate on load
 window.addEventListener('DOMContentLoaded', () => {
   new AppController();
 });

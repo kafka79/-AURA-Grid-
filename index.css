@@ -423,10 +423,7 @@ header {
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.8);
 }
 
-.map-canvas-container {
-  width: 100%;
-  height: 100%;
-}
+
 
 .map-tooltip-title {
   font-weight: 600;
@@ -861,3 +858,242 @@ input:checked + .slider-switch:before {
 .spin-slow {
   animation: spin-slow 20s linear infinite;
 }
+
+/* Inline styles extracted from index.html */
+.grid-status-label {
+  font-family: var(--font-display);
+  font-weight: 500;
+}
+
+.battery-progress-container {
+  height: 4px;
+  width: 100%;
+  background: rgba(255,255,255,0.05);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.battery-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--color-green);
+  transition: width 0.5s ease;
+}
+
+.flex-column-grow {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.live-chart-container {
+  flex-grow: 1;
+  min-height: 200px;
+}
+
+.map-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.map-container-relative {
+  flex-grow: 1;
+  position: relative;
+}
+
+.detail-status-wrapper {
+  margin-top: 2px;
+}
+
+.detail-capacity-muted {
+  color: var(--text-muted);
+}
+
+.alerts-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cockpit-right-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.savings-card {
+  background: rgba(16, 185, 129, 0.03);
+  border-color: rgba(16, 185, 129, 0.15);
+}
+
+.savings-title {
+  color: var(--color-green);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.savings-value {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--color-green);
+}
+
+/* Reset button styling */
+.reset-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: 30px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: var(--transition-smooth);
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.reset-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fff;
+  border-color: rgba(239, 68, 68, 0.35);
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.2);
+}
+
+.reset-btn svg {
+  transition: transform 0.4s ease;
+}
+
+.reset-btn:hover svg {
+  transform: rotate(-180deg);
+}
+
+/* Fallback chart design */
+.chart-fallback-placeholder {
+  border: 1px dashed var(--border-light);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 20px;
+}
+
+/* Mobile & Small Device Responsiveness Media Queries */
+@media (max-width: 768px) {
+  body {
+    padding: 10px;
+  }
+  
+  .dashboard-container {
+    padding: 10px;
+    gap: 15px;
+    max-width: 100%;
+  }
+  
+  header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding-bottom: 15px;
+  }
+  
+  .header-status {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+  
+  .cockpit-panel {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+  
+  .cockpit-controls {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+  
+  .center-column {
+    min-height: 400px;
+  }
+  
+  .campus-svg {
+    max-height: 320px;
+  }
+  
+  .building-detail-overlay {
+    flex-direction: column;
+    position: relative;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
+    margin-top: 10px;
+  }
+  
+  .detail-info {
+    flex-wrap: wrap;
+    gap: 15px 10px;
+  }
+  
+  .detail-block {
+    flex: 1 1 40%;
+  }
+}
+
+.alert-title.alert-critical {
+  color: var(--color-red);
+  gap: 6px;
+}
+
+.alert-title.alert-warning {
+  color: var(--color-amber);
+  gap: 6px;
+}
+
+/* Chart tab selectors */
+.chart-mode-selector {
+  display: flex;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-light);
+  padding: 2px;
+  border-radius: 6px;
+  gap: 2px;
+}
+
+.chart-tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  font-size: 0.7rem;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: var(--transition-smooth);
+  font-family: var(--font-display);
+}
+
+.chart-tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.chart-tab-btn.active {
+  background: rgba(6, 182, 212, 0.15);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  color: var(--color-cyan);
+}
+
+

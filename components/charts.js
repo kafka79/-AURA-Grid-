@@ -6,13 +6,20 @@ export class DashboardCharts {
     this.liveChart = null;
     this.donutChart = null;
     
-    // Historical buffer for line chart (last 15 data points)
-    this.historyMaxLength = 15;
+    // Historical buffer for live trend line chart (last 40 data points)
+    this.historyMaxLength = 40;
     this.solarHistory = [];
     this.gridHistory = [];
     this.timeOffset = 0;
 
-    // Pre-populate buffer with empty coordinates so the chart has initial axes
+    // Rolling 24-hour log buffer for hourly averages
+    this.hourlySolarHistory = [];
+    this.hourlyGridHistory = [];
+    this.currentMode = 'live'; // 'live' or '24h'
+    this.lastHourInt = null;
+    this.hourlyAccumulator = { solar: [], grid: [] };
+
+    // Pre-populate buffers with empty coordinates so the chart has initial axes
     const startHour = 10.0;
     const interval = 0.08;
     for (let i = 0; i < this.historyMaxLength; i++) {
@@ -20,12 +27,17 @@ export class DashboardCharts {
       this.solarHistory.push({ x: x, y: 0 });
       this.gridHistory.push({ x: x, y: 0 });
     }
+
+    for (let i = 0; i < 24; i++) {
+      const x = startHour - (24 - 1 - i) * 1.0;
+      this.hourlySolarHistory.push({ x: x, y: 0 });
+      this.hourlyGridHistory.push({ x: x, y: 0 });
+    }
     
     this.init();
   }
 
   init() {
-    // Graceful fallback if ApexCharts library failed to load (e.g. offline or CDN outage)
     if (typeof window.ApexCharts === 'undefined') {
       console.warn("ApexCharts library not found. Rendering fallback container.");
       
@@ -106,7 +118,6 @@ export class DashboardCharts {
           },
           formatter: (value) => {
             if (value === undefined || value === null) return '';
-            // Wrap decimal time back into 24 hour range
             const normalized = ((parseFloat(value) % 24) + 24) % 24;
             const hours = Math.floor(normalized);
             const minutes = Math.floor((normalized - hours) * 60);
@@ -149,7 +160,7 @@ export class DashboardCharts {
 
     // 2. Initialize Category Breakdown Donut Chart
     const donutChartOptions = {
-      series: [40, 20, 30, 10], // Initial values
+      series: [40, 20, 30, 10],
       labels: ['HVAC Cooling/Heating', 'Lighting Systems', 'Equipment & Labs', 'Servers & Infrastructure'],
       chart: {
         type: 'donut',
@@ -193,9 +204,7 @@ export class DashboardCharts {
       },
       colors: ['#06b6d4', '#10b981', '#f59e0b', '#3b82f6'],
       dataLabels: { enabled: false },
-      legend: {
-        show: false
-      },
+      legend: { show: false },
       stroke: {
         show: true,
         colors: ['rgba(15, 23, 42, 0.9)'],
@@ -214,7 +223,7 @@ export class DashboardCharts {
   }
 
   updateLiveHistory(solarKW, gridKW, decimalTime) {
-    if (!this.liveChart) return; // ponytail: check if chart initialized
+    if (!this.liveChart) return;
     
     let isDiscontinuity = false;
     if (this.solarHistory.length > 0) {
@@ -224,62 +233,116 @@ export class DashboardCharts {
       
       if (diff < 0) {
         if (prevTimeOfDay > 23.0 && decimalTime < 1.0) {
-          // Wrapped around midnight! Offset to prevent reverse line tracing
           this.timeOffset += 24;
         } else {
           isDiscontinuity = true;
         }
       } else if (diff > 1.0) {
-        // Large forward jump
         isDiscontinuity = true;
       }
     }
 
     if (isDiscontinuity) {
-      // ponytail: reset chart history on manual time jump to prevent graph corruption
-      this.solarHistory = [];
-      this.gridHistory = [];
-      this.timeOffset = 0;
-      const startHour = decimalTime;
-      const interval = 0.08;
-      for (let i = 0; i < this.historyMaxLength; i++) {
-        const x = startHour - (this.historyMaxLength - 1 - i) * interval;
-        this.solarHistory.push({ x: x, y: 0 });
-        this.gridHistory.push({ x: x, y: 0 });
+      this.reset(decimalTime);
+    } else {
+      const xVal = decimalTime + this.timeOffset;
+      this.solarHistory.push({ x: xVal, y: solarKW });
+      this.gridHistory.push({ x: xVal, y: gridKW });
+
+      if (this.solarHistory.length > this.historyMaxLength) {
+        this.solarHistory.shift();
+        this.gridHistory.shift();
       }
+
+      // Hourly accumulation tracking
+      const currentHourInt = Math.floor(decimalTime);
+      if (this.lastHourInt === null) {
+        this.lastHourInt = currentHourInt;
+        this.hourlyAccumulator = { solar: [], grid: [] };
+      }
+
+      this.hourlyAccumulator.solar.push(solarKW);
+      this.hourlyAccumulator.grid.push(gridKW);
+
+      if (currentHourInt !== this.lastHourInt) {
+        const avgSolar = this.hourlyAccumulator.solar.reduce((a, b) => a + b, 0) / this.hourlyAccumulator.solar.length;
+        const avgGrid = this.hourlyAccumulator.grid.reduce((a, b) => a + b, 0) / this.hourlyAccumulator.grid.length;
+
+        const xHourVal = this.lastHourInt + this.timeOffset;
+        this.hourlySolarHistory.push({ x: xHourVal, y: avgSolar });
+        this.hourlyGridHistory.push({ x: xHourVal, y: avgGrid });
+
+        if (this.hourlySolarHistory.length > 24) {
+          this.hourlySolarHistory.shift();
+          this.hourlyGridHistory.shift();
+        }
+
+        this.lastHourInt = currentHourInt;
+        this.hourlyAccumulator = { solar: [solarKW], grid: [gridKW] };
+      }
+
+      this.renderCurrentModeSeries();
     }
+  }
 
-    const xVal = decimalTime + this.timeOffset;
-    this.solarHistory.push({ x: xVal, y: solarKW });
-    this.gridHistory.push({ x: xVal, y: gridKW });
+  renderCurrentModeSeries() {
+    if (!this.liveChart) return;
+    const isLive = this.currentMode === 'live';
+    const solarData = isLive ? this.solarHistory : this.hourlySolarHistory;
+    const gridData = isLive ? this.gridHistory : this.hourlyGridHistory;
 
-    if (this.solarHistory.length > this.historyMaxLength) {
-      this.solarHistory.shift();
-      this.gridHistory.shift();
-    }
-
-    // High-performance direct updateSeries invocation (completely bypasses updateOptions rebuilding)
     this.liveChart.updateSeries([
       {
-        name: 'Solar Output',
-        data: this.solarHistory
+        name: isLive ? 'Solar Output' : 'Avg Solar Output',
+        data: solarData
       },
       {
-        name: 'Grid Demand',
-        data: this.gridHistory
+        name: isLive ? 'Grid Demand' : 'Avg Grid Demand',
+        data: gridData
       }
     ], true);
   }
 
+  setMode(mode) {
+    if (mode === 'live' || mode === '24h') {
+      this.currentMode = mode;
+      this.renderCurrentModeSeries();
+    }
+  }
+
+  reset(startHour = 10.0) {
+    this.solarHistory = [];
+    this.gridHistory = [];
+    this.hourlySolarHistory = [];
+    this.hourlyGridHistory = [];
+    this.timeOffset = 0;
+    this.lastHourInt = null;
+    this.hourlyAccumulator = { solar: [], grid: [] };
+
+    const interval = 0.08;
+    for (let i = 0; i < this.historyMaxLength; i++) {
+      const x = startHour - (this.historyMaxLength - 1 - i) * interval;
+      this.solarHistory.push({ x: x, y: 0 });
+      this.gridHistory.push({ x: x, y: 0 });
+    }
+
+    for (let i = 0; i < 24; i++) {
+      const x = startHour - (24 - 1 - i) * 1.0;
+      this.hourlySolarHistory.push({ x: x, y: 0 });
+      this.hourlyGridHistory.push({ x: x, y: 0 });
+    }
+
+    this.renderCurrentModeSeries();
+  }
+
   updateCategoryData(breakdownObj) {
-    if (!this.donutChart || !breakdownObj) return; // ponytail: check if chart initialized
+    if (!this.donutChart || !breakdownObj) return;
     
     const hvacVal = Math.round(breakdownObj.hvac);
     const lightsVal = Math.round(breakdownObj.lights);
     const equipVal = Math.round(breakdownObj.equipment);
     const servVal = Math.round(breakdownObj.servers);
 
-    // Compare with current values to avoid unnecessary DOM/chart updates
     const currentSeries = this.donutChart.w.config.series;
     if (
       currentSeries &&
@@ -288,7 +351,7 @@ export class DashboardCharts {
       currentSeries[2] === equipVal &&
       currentSeries[3] === servVal
     ) {
-      return; // No change, skip update
+      return;
     }
 
     this.donutChart.updateSeries([hvacVal, lightsVal, equipVal, servVal]);

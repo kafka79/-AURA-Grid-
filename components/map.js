@@ -3,110 +3,64 @@ export class CampusMap {
     this.container = document.getElementById(containerId);
     this.onBuildingSelect = onBuildingSelect;
     this.selectedBuildingId = null;
-    this.lastBuildingData = null; // Decoupled local state reference
+    this.lastBuildingData = null;
+    this.isLoaded = false;
+    this.pendingUpdateData = null;
     this.init();
   }
 
-  init() {
+  async init() {
     this.container.innerHTML = `
       <div class="map-canvas-container">
-        <svg class="campus-svg" viewBox="0 0 800 480" xmlns="http://www.w3.org/2000/svg">
-          <!-- Background grids and visual lines -->
-          <defs>
-            <radialGradient id="solar-glow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stop-color="var(--color-cyan)" stop-opacity="0.3"/>
-              <stop offset="100%" stop-color="var(--color-cyan)" stop-opacity="0"/>
-            </radialGradient>
-            <radialGradient id="substation-glow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stop-color="var(--color-blue)" stop-opacity="0.3"/>
-              <stop offset="100%" stop-color="var(--color-blue)" stop-opacity="0"/>
-            </radialGradient>
-          </defs>
-
-          <!-- Paths / Roads -->
-          <path class="map-road" d="M 50,240 Q 380,240 750,240" />
-          <path class="map-road" d="M 380,50 L 380,430" />
-          <path class="map-path" d="M 120,120 L 380,240 L 650,120 L 650,380 L 380,240 L 170,330" />
-
-          <!-- Power lines -->
-          <path id="wire-solar" class="power-wire" d="M 140,120 L 350,210" />
-          <path id="wire-engineering" class="power-wire" d="M 410,210 L 620,120" />
-          <path id="wire-science" class="power-wire" d="M 350,240 L 190,320" />
-          <path id="wire-library" class="power-wire" d="M 410,230 L 470,210" />
-          <path id="wire-hostels" class="power-wire" d="M 410,250 L 600,370" />
-          <path id="wire-admin" class="power-wire" d="M 380,270 L 380,350" />
-
-          <!-- Trees / Decorative Elements -->
-          <circle cx="280" cy="120" r="6" fill="#065f46" opacity="0.6"/>
-          <circle cx="300" cy="130" r="5" fill="#065f46" opacity="0.6"/>
-          <circle cx="260" cy="140" r="7" fill="#065f46" opacity="0.6"/>
-          <circle cx="530" cy="290" r="7" fill="#065f46" opacity="0.6"/>
-          <circle cx="550" cy="310" r="5" fill="#065f46" opacity="0.6"/>
-
-          <!-- SOLAR FARM -->
-          <g id="solar-farm" class="map-building" data-status="normal">
-            <rect x="70" y="70" width="100" height="70" rx="6" fill="#1e293b" />
-            <polygon points="80,80 110,80 100,105 70,105" fill="#0f172a" stroke="var(--color-cyan)" stroke-width="0.5"/>
-            <polygon points="120,80 150,80 140,105 110,105" fill="#0f172a" stroke="var(--color-cyan)" stroke-width="0.5"/>
-            <polygon points="85,110 115,110 105,135 75,135" fill="#0f172a" stroke="var(--color-cyan)" stroke-width="0.5"/>
-            <polygon points="125,110 155,110 145,135 115,135" fill="#0f172a" stroke="var(--color-cyan)" stroke-width="0.5"/>
-            <text x="120" y="62" text-anchor="middle" class="map-label">Solar Farm</text>
-          </g>
-
-          <!-- SUBSTATION -->
-          <g id="substation" class="map-building" data-status="normal">
-            <rect x="350" y="200" width="60" height="60" rx="8" fill="#1e293b" />
-            <circle cx="370" cy="230" r="10" fill="none" stroke="var(--color-blue)" stroke-width="2" />
-            <circle cx="390" cy="230" r="10" fill="none" stroke="var(--color-blue)" stroke-width="2" />
-            <line x1="365" y1="215" x2="395" y2="245" stroke="var(--color-blue)" stroke-width="1.5" />
-            <text x="380" y="192" text-anchor="middle" class="map-label">Substation</text>
-          </g>
-
-          <!-- ENGINEERING BLOCK -->
-          <g id="building-engineering" class="map-building" data-status="normal">
-            <polygon points="600,70 700,70 700,140 640,140 640,110 600,110" fill="#1e293b" />
-            <rect x="650" y="80" width="40" height="20" rx="2" fill="#0f172a" opacity="0.5" />
-            <text x="650" y="62" text-anchor="middle" class="map-label">Engineering Block</text>
-          </g>
-
-          <!-- SCIENCE LAB -->
-          <g id="building-science" class="map-building" data-status="normal">
-            <rect x="90" y="290" width="100" height="60" rx="6" fill="#1e293b" />
-            <circle cx="140" cy="320" r="15" fill="#0f172a" opacity="0.5" />
-            <polygon points="135,310 145,310 150,330 130,330" fill="var(--color-amber)" opacity="0.3"/>
-            <text x="140" y="282" text-anchor="middle" class="map-label">Science Lab</text>
-          </g>
-
-          <!-- LIBRARY -->
-          <g id="building-library" class="map-building" data-status="normal">
-            <rect x="470" y="170" width="90" height="60" rx="12" fill="#1e293b" />
-            <line x1="470" y1="200" x2="560" y2="200" stroke="#0f172a" stroke-width="4" />
-            <text x="515" y="162" text-anchor="middle" class="map-label">Library</text>
-          </g>
-
-          <!-- STUDENT HOSTELS -->
-          <g id="building-hostels" class="map-building" data-status="normal">
-            <rect x="580" y="330" width="120" height="70" rx="4" fill="#1e293b" />
-            <rect x="610" y="345" width="60" height="40" fill="#0f172a" opacity="0.8" />
-            <text x="640" y="322" text-anchor="middle" class="map-label">Student Hostels</text>
-          </g>
-
-          <!-- ADMINISTRATION -->
-          <g id="building-admin" class="map-building" data-status="normal">
-            <polygon points="340,350 420,350 400,390 360,390" fill="#1e293b" />
-            <line x1="360" y1="365" x2="360" y2="385" stroke="#0f172a" stroke-width="2" />
-            <line x1="380" y1="365" x2="380" y2="385" stroke="#0f172a" stroke-width="2" />
-            <line x1="400" y1="365" x2="400" y2="385" stroke="#0f172a" stroke-width="2" />
-            <text x="380" y="342" text-anchor="middle" class="map-label">Administration</text>
-          </g>
-
-        </svg>
+        <div class="map-loading" style="color: var(--text-secondary); font-family: var(--font-display); font-size: 0.85rem;">
+          Initializing telemetry map...
+        </div>
         <div id="map-tooltip" class="map-tooltip">Building Info</div>
       </div>
     `;
 
     this.tooltip = document.getElementById('map-tooltip');
-    this.bindEvents();
+
+    try {
+      const response = await fetch('./components/map.svg');
+      if (!response.ok) throw new Error('Could not load map.svg');
+      const svgText = await response.text();
+      
+      const canvas = this.container.querySelector('.map-canvas-container');
+      if (canvas) {
+        const loading = canvas.querySelector('.map-loading');
+        if (loading) loading.remove();
+        
+        // Parse the SVG and inject it safely
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(svgText, 'image/svg+xml');
+        const svgElement = doc.querySelector('svg');
+        
+        if (svgElement) {
+          canvas.appendChild(svgElement);
+          this.isLoaded = true;
+          this.bindEvents();
+          
+          // Apply any updates that queued up during async load
+          if (this.pendingUpdateData) {
+            this.updateMapStates(this.pendingUpdateData.buildingData, this.pendingUpdateData.solarOutput);
+            this.pendingUpdateData = null;
+          }
+        } else {
+          throw new Error('Parsed document does not contain an SVG element');
+        }
+      }
+    } catch (e) {
+      console.error('CampusMap SVG load error:', e);
+      const canvas = this.container.querySelector('.map-canvas-container');
+      if (canvas) {
+        canvas.innerHTML = `
+          <div style="color: var(--color-red); font-family: var(--font-display); font-size: 0.9rem; text-align: center; padding: 20px;">
+            Telemetry Map Offline
+          </div>
+        `;
+      }
+    }
   }
 
   bindEvents() {
@@ -168,7 +122,12 @@ export class CampusMap {
   }
 
   updateMapStates(buildingData, solarOutput) {
-    this.lastBuildingData = buildingData; // Save local data reference
+    this.lastBuildingData = buildingData;
+    
+    if (!this.isLoaded) {
+      this.pendingUpdateData = { buildingData, solarOutput };
+      return;
+    }
     
     Object.keys(buildingData).forEach(id => {
       const el = this.container.querySelector(`#${id}`);
@@ -176,7 +135,6 @@ export class CampusMap {
 
       const stats = buildingData[id];
       
-      // Update state via CSS custom data status attribute instead of raw inline style modifications
       if (el.getAttribute('data-status') !== stats.state) {
         el.setAttribute('data-status', stats.state);
       }
