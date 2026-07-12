@@ -18,7 +18,7 @@
       <div class="logo-section">
         <h1>
           <!-- Zap/Energy SVG Icon -->
-          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--color-cyan)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="spin-slow"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--color-cyan)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           AURA Grid
           <span>Campus IoT</span>
         </h1>
@@ -93,9 +93,9 @@
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
               Grid Power History
             </div>
-            <div class="chart-mode-selector">
-              <button id="btn-chart-live" class="chart-tab-btn active">Live</button>
-              <button id="btn-chart-24h" class="chart-tab-btn">24H Log</button>
+            <div class="chart-mode-selector" role="tablist" aria-label="Chart time range">
+              <button id="btn-chart-live" class="chart-tab-btn active" role="tab" aria-selected="true" aria-controls="live-chart-panel" id="tab-live">Live</button>
+              <button id="btn-chart-24h" class="chart-tab-btn" role="tab" aria-selected="false" aria-controls="24h-chart-panel" id="tab-24h">24H Log</button>
             </div>
           </h3>
           <div id="live-chart" class="live-chart-container"></div>
@@ -259,13 +259,56 @@
           <span id="metric-carbon" class="savings-value">0.0 kg</span>
         </div>
 
+        <!-- Tariff & Cost tracking -->
+        <div class="toggle-card">
+          <div class="toggle-info">
+            <span class="toggle-title">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              Energy Cost (Projected)
+            </span>
+            <span class="toggle-desc">Estimated monthly bill including demand charges</span>
+          </div>
+          <span id="metric-projected-bill" class="savings-value" style="color: var(--color-cyan);">₹0</span>
+        </div>
+
+        <div class="toggle-card">
+          <div class="toggle-info">
+            <span class="toggle-title">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+              Max Demand
+            </span>
+            <span class="toggle-desc">Peak kVA this billing period (drives demand charge)</span>
+          </div>
+          <span id="metric-max-demand" class="savings-value" style="color: var(--color-amber);">0.0 kVA</span>
+        </div>
+
+        <div class="toggle-card">
+          <div class="toggle-info">
+            <span class="toggle-title">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              Energy Cost (MTD)
+            </span>
+            <span class="toggle-desc">Accumulated energy charges this month</span>
+          </div>
+          <span id="metric-energy-cost" class="savings-value" style="color: var(--color-green);">₹0</span>
+        </div>
+
+        <div class="toggle-card">
+          <div class="toggle-info">
+            <span class="toggle-title">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              Demand Charge
+            </span>
+            <span class="toggle-desc">Projected demand charge (₹/kVA × peak kVA)</span>
+          </div>
+          <span id="metric-demand-charge" class="savings-value" style="color: var(--color-red);">₹0</span>
+        </div>
+
       </div>
 
     </div>
   </div>
 
-  <!-- ApexCharts Library -->
-  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
   <!-- Application Bundle script entry -->
   <script type="module" src="app.js"></script>
 </body>

@@ -1,12 +1,14 @@
+import ApexCharts from 'apexcharts';
+
 export class DashboardCharts {
   constructor(liveChartId, donutChartId) {
     this.liveChartId = liveChartId;
     this.donutChartId = donutChartId;
-    
+
     this.liveChart = null;
     this.donutChart = null;
-    
-    // Historical buffer for live trend line chart (last 40 data points)
+
+    // Historical buffer for live trend line chart
     this.historyMaxLength = 40;
     this.solarHistory = [];
     this.gridHistory = [];
@@ -15,66 +17,27 @@ export class DashboardCharts {
     // Rolling 24-hour log buffer for hourly averages
     this.hourlySolarHistory = [];
     this.hourlyGridHistory = [];
-    this.currentMode = 'live'; // 'live' or '24h'
+    this.currentMode = 'live';
     this.lastHourInt = null;
     this.hourlyAccumulator = { solar: [], grid: [] };
 
-    // Pre-populate buffers with empty coordinates so the chart has initial axes
-    const startHour = 10.0;
-    const interval = 0.08;
-    for (let i = 0; i < this.historyMaxLength; i++) {
-      const x = startHour - (this.historyMaxLength - 1 - i) * interval;
-      this.solarHistory.push({ x: x, y: 0 });
-      this.gridHistory.push({ x: x, y: 0 });
-    }
-
-    for (let i = 0; i < 24; i++) {
-      const x = startHour - (24 - 1 - i) * 1.0;
-      this.hourlySolarHistory.push({ x: x, y: 0 });
-      this.hourlyGridHistory.push({ x: x, y: 0 });
-    }
-    
     this.init();
   }
 
   init() {
-    if (typeof window.ApexCharts === 'undefined') {
-      console.warn("ApexCharts library not found. Rendering fallback container.");
-      
-      const setupFallback = (containerId, title) => {
-        const container = document.getElementById(containerId);
-        if (container) {
-          container.innerHTML = `
-            <div class="chart-fallback-placeholder" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 180px; color: var(--text-secondary); text-align: center; border: 1px dashed var(--border-light); border-radius: 8px; padding: 20px;">
-              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 8px;"><path d="m19 12-5 5-4-4-3 3"/><path d="M3 3v18h18"/></svg>
-              <span style="font-family: var(--font-display); font-size: 0.9rem; font-weight: 500; color: var(--text-primary);">${title} Offline</span>
-              <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Could not load charting library. Live updates simulated in stats panel.</span>
-            </div>
-          `;
-        }
-      };
-
-      setupFallback(this.liveChartId, 'Live Energy Trend Chart');
-      setupFallback(this.donutChartId, 'System Load Breakdown Donut');
-
-      this.liveChart = null;
-      this.donutChart = null;
-      return;
-    }
-
-    // 1. Initialize Live Energy Trend Chart
+    // Initialize Live Energy Trend Chart
     const liveChartOptions = {
       series: [
         {
           name: 'Solar Output',
           data: this.solarHistory,
-          color: '#06b6d4'
+          color: '#06b6d4',
         },
         {
           name: 'Grid Demand',
           data: this.gridHistory,
-          color: '#3b82f6'
-        }
+          color: '#3b82f6',
+        },
       ],
       chart: {
         type: 'area',
@@ -83,15 +46,15 @@ export class DashboardCharts {
         animations: {
           enabled: true,
           easing: 'linear',
-          dynamicAnimation: { speed: 800 }
+          dynamicAnimation: { speed: 800 },
         },
         background: 'transparent',
-        foreColor: '#9ca3af'
+        foreColor: '#9ca3af',
       },
       dataLabels: { enabled: false },
       stroke: {
         curve: 'smooth',
-        width: 2.5
+        width: 2.5,
       },
       fill: {
         type: 'gradient',
@@ -99,14 +62,14 @@ export class DashboardCharts {
           shadeIntensity: 1,
           opacityFrom: 0.35,
           opacityTo: 0.02,
-          stops: [0, 95, 100]
-        }
+          stops: [0, 95, 100],
+        },
       },
       grid: {
         borderColor: 'rgba(255, 255, 255, 0.05)',
         strokeDashArray: 4,
         xaxis: { lines: { show: false } },
-        yaxis: { lines: { show: true } }
+        yaxis: { lines: { show: true } },
       },
       xaxis: {
         type: 'numeric',
@@ -114,7 +77,7 @@ export class DashboardCharts {
         labels: {
           style: {
             fontFamily: 'Inter, sans-serif',
-            fontSize: '10px'
+            fontSize: '10px',
           },
           formatter: (value) => {
             if (value === undefined || value === null) return '';
@@ -125,40 +88,43 @@ export class DashboardCharts {
             const displayHours = hours % 12 === 0 ? 12 : hours % 12;
             const minStr = minutes < 10 ? '0' + minutes : minutes;
             return `${displayHours}:${minStr} ${ampm}`;
-          }
+          },
         },
         axisBorder: { show: false },
-        axisTicks: { show: false }
+        axisTicks: { show: false },
       },
       yaxis: {
         labels: {
           formatter: (value) => `${value.toFixed(0)} kW`,
           style: {
             fontFamily: 'Inter, sans-serif',
-            fontSize: '10px'
-          }
-        }
+            fontSize: '10px',
+          },
+        },
       },
       tooltip: {
         theme: 'dark',
         x: { show: true },
         y: {
-          formatter: (value) => `${value.toFixed(1)} kW`
-        }
+          formatter: (value) => `${value.toFixed(1)} kW`,
+        },
       },
       legend: {
         position: 'top',
         horizontalAlign: 'right',
         labels: { colors: '#f9fafb' },
         fontFamily: 'Space Grotesk, sans-serif',
-        fontSize: '12px'
-      }
+        fontSize: '12px',
+      },
     };
 
-    this.liveChart = new ApexCharts(document.getElementById(this.liveChartId), liveChartOptions);
-    this.liveChart.render();
+    const liveChartEl = document.getElementById(this.liveChartId);
+    if (liveChartEl) {
+      this.liveChart = new ApexCharts(liveChartEl, liveChartOptions);
+      this.liveChart.render();
+    }
 
-    // 2. Initialize Category Breakdown Donut Chart
+    // Initialize Category Breakdown Donut Chart
     const donutChartOptions = {
       series: [40, 20, 30, 10],
       labels: ['HVAC Cooling/Heating', 'Lighting Systems', 'Equipment & Labs', 'Servers & Infrastructure'],
@@ -166,7 +132,7 @@ export class DashboardCharts {
         type: 'donut',
         height: 220,
         background: 'transparent',
-        foreColor: '#9ca3af'
+        foreColor: '#9ca3af',
       },
       plotOptions: {
         pie: {
@@ -179,7 +145,7 @@ export class DashboardCharts {
                 fontSize: '12px',
                 fontFamily: 'Space Grotesk, sans-serif',
                 color: '#9ca3af',
-                offsetY: -5
+                offsetY: -5,
               },
               value: {
                 show: true,
@@ -188,19 +154,17 @@ export class DashboardCharts {
                 fontWeight: 600,
                 color: '#f9fafb',
                 offsetY: 5,
-                formatter: (val) => `${val}%`
+                formatter: (val) => `${val}%`,
               },
               total: {
                 show: true,
                 label: 'System Load',
                 color: '#9ca3af',
-                formatter: function (w) {
-                  return '100%';
-                }
-              }
-            }
-          }
-        }
+                formatter: () => '100%',
+              },
+            },
+          },
+        },
       },
       colors: ['#06b6d4', '#10b981', '#f59e0b', '#3b82f6'],
       dataLabels: { enabled: false },
@@ -208,29 +172,47 @@ export class DashboardCharts {
       stroke: {
         show: true,
         colors: ['rgba(15, 23, 42, 0.9)'],
-        width: 2
+        width: 2,
       },
       tooltip: {
         theme: 'dark',
         y: {
-          formatter: (value) => `${value}% of total`
-        }
-      }
+          formatter: (value) => `${value}% of total`,
+        },
+      },
     };
 
-    this.donutChart = new ApexCharts(document.getElementById(this.donutChartId), donutChartOptions);
-    this.donutChart.render();
+    const donutChartEl = document.getElementById(this.donutChartId);
+    if (donutChartEl) {
+      this.donutChart = new ApexCharts(donutChartEl, donutChartOptions);
+      this.donutChart.render();
+    }
+  }
+
+  // Initialize history buffers from pre-simulated state
+  initializeHistory(history) {
+    if (!history) return;
+
+    this.solarHistory = history.solarHistory || [];
+    this.gridHistory = history.gridHistory || [];
+    this.hourlySolarHistory = history.hourlySolarHistory || [];
+    this.hourlyGridHistory = history.hourlyGridHistory || [];
+    this.timeOffset = history.timeOffset || 0;
+    this.lastHourInt = history.lastHourInt ?? null;
+    this.hourlyAccumulator = history.hourlyAccumulator || { solar: [], grid: [] };
+
+    this.renderCurrentModeSeries();
   }
 
   updateLiveHistory(solarKW, gridKW, decimalTime) {
     if (!this.liveChart) return;
-    
+
     let isDiscontinuity = false;
     if (this.solarHistory.length > 0) {
       const prevX = this.solarHistory[this.solarHistory.length - 1].x;
       const prevTimeOfDay = prevX - this.timeOffset;
       const diff = decimalTime - prevTimeOfDay;
-      
+
       if (diff < 0) {
         if (prevTimeOfDay > 23.0 && decimalTime < 1.0) {
           this.timeOffset += 24;
@@ -254,7 +236,8 @@ export class DashboardCharts {
         this.gridHistory.shift();
       }
 
-      // Hourly accumulation tracking
+      // Hourly accumulation - use wall-clock hour, not simulation time
+      // Track by integer hour of simulation time
       const currentHourInt = Math.floor(decimalTime);
       if (this.lastHourInt === null) {
         this.lastHourInt = currentHourInt;
@@ -265,16 +248,18 @@ export class DashboardCharts {
       this.hourlyAccumulator.grid.push(gridKW);
 
       if (currentHourInt !== this.lastHourInt) {
-        const avgSolar = this.hourlyAccumulator.solar.reduce((a, b) => a + b, 0) / this.hourlyAccumulator.solar.length;
-        const avgGrid = this.hourlyAccumulator.grid.reduce((a, b) => a + b, 0) / this.hourlyAccumulator.grid.length;
+        if (this.hourlyAccumulator.solar.length > 0) {
+          const avgSolar = this.hourlyAccumulator.solar.reduce((a, b) => a + b, 0) / this.hourlyAccumulator.solar.length;
+          const avgGrid = this.hourlyAccumulator.grid.reduce((a, b) => a + b, 0) / this.hourlyAccumulator.grid.length;
 
-        const xHourVal = this.lastHourInt + this.timeOffset;
-        this.hourlySolarHistory.push({ x: xHourVal, y: avgSolar });
-        this.hourlyGridHistory.push({ x: xHourVal, y: avgGrid });
+          const xHourVal = this.lastHourInt + this.timeOffset;
+          this.hourlySolarHistory.push({ x: xHourVal, y: avgSolar });
+          this.hourlyGridHistory.push({ x: xHourVal, y: avgGrid });
 
-        if (this.hourlySolarHistory.length > 24) {
-          this.hourlySolarHistory.shift();
-          this.hourlyGridHistory.shift();
+          if (this.hourlySolarHistory.length > 24) {
+            this.hourlySolarHistory.shift();
+            this.hourlyGridHistory.shift();
+          }
         }
 
         this.lastHourInt = currentHourInt;
@@ -294,12 +279,12 @@ export class DashboardCharts {
     this.liveChart.updateSeries([
       {
         name: isLive ? 'Solar Output' : 'Avg Solar Output',
-        data: solarData
+        data: solarData,
       },
       {
         name: isLive ? 'Grid Demand' : 'Avg Grid Demand',
-        data: gridData
-      }
+        data: gridData,
+      },
     ], true);
   }
 
@@ -337,7 +322,7 @@ export class DashboardCharts {
 
   updateCategoryData(breakdownObj) {
     if (!this.donutChart || !breakdownObj) return;
-    
+
     const hvacVal = Math.round(breakdownObj.hvac);
     const lightsVal = Math.round(breakdownObj.lights);
     const equipVal = Math.round(breakdownObj.equipment);

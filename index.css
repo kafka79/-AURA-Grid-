@@ -329,22 +329,29 @@ header {
   stroke-width: 1.5px;
 }
 
+/* Use CSS custom properties for theming instead of !important */
 .map-building[data-status="normal"] {
+  --building-fill: rgba(16, 185, 129, 0.12);
+  --building-stroke: var(--color-green);
   --glow-color: var(--color-green);
-  fill: rgba(16, 185, 129, 0.12) !important;
-  stroke: var(--color-green) !important;
+  fill: var(--building-fill);
+  stroke: var(--building-stroke);
 }
 
 .map-building[data-status="peak"] {
+  --building-fill: rgba(245, 158, 11, 0.12);
+  --building-stroke: var(--color-amber);
   --glow-color: var(--color-amber);
-  fill: rgba(245, 158, 11, 0.12) !important;
-  stroke: var(--color-amber) !important;
+  fill: var(--building-fill);
+  stroke: var(--building-stroke);
 }
 
 .map-building[data-status="critical"] {
+  --building-fill: rgba(239, 68, 68, 0.12);
+  --building-stroke: var(--color-red);
   --glow-color: var(--color-red);
-  fill: rgba(239, 68, 68, 0.12) !important;
-  stroke: var(--color-red) !important;
+  fill: var(--building-fill);
+  stroke: var(--building-stroke);
 }
 
 .map-building:hover {
@@ -849,14 +856,21 @@ input:checked + .slider-switch:before {
 .text-red { color: var(--color-red); }
 .text-cyan { color: var(--color-cyan); }
 
-/* Custom Animations */
-@keyframes spin-slow {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+/* Focus visible for keyboard accessibility */
+.chart-tab-btn:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 2px;
 }
 
-.spin-slow {
-  animation: spin-slow 20s linear infinite;
+/* Toast animations */
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideOut {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(100%); opacity: 0; }
 }
 
 /* Inline styles extracted from index.html */
@@ -878,7 +892,20 @@ input:checked + .slider-switch:before {
   height: 100%;
   width: 0%;
   background: var(--color-green);
-  transition: width 0.5s ease;
+  transition: width 0.5s ease, background-color 0.3s ease;
+}
+
+/* Battery charge level color states driven by data-charge-level attribute */
+.battery-progress-bar[data-charge-level="normal"] {
+  background: var(--color-green);
+}
+
+.battery-progress-bar[data-charge-level="warning"] {
+  background: var(--color-amber);
+}
+
+.battery-progress-bar[data-charge-level="critical"] {
+  background: var(--color-red);
 }
 
 .flex-column-grow {

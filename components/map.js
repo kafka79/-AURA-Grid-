@@ -25,22 +25,25 @@ export class CampusMap {
       const response = await fetch('./components/map.svg');
       if (!response.ok) throw new Error('Could not load map.svg');
       const svgText = await response.text();
-      
+
       const canvas = this.container.querySelector('.map-canvas-container');
       if (canvas) {
         const loading = canvas.querySelector('.map-loading');
         if (loading) loading.remove();
-        
+
         // Parse the SVG and inject it safely
         const parser = new DOMParser();
         const doc = parser.parseFromString(svgText, 'image/svg+xml');
         const svgElement = doc.querySelector('svg');
-        
+
         if (svgElement) {
+          // Remove any CSS custom property references that won't work in inline SVG
+          this.fixSvgColors(svgElement);
+
           canvas.appendChild(svgElement);
           this.isLoaded = true;
           this.bindEvents();
-          
+
           // Apply any updates that queued up during async load
           if (this.pendingUpdateData) {
             this.updateMapStates(this.pendingUpdateData.buildingData, this.pendingUpdateData.solarOutput);
@@ -57,8 +60,57 @@ export class CampusMap {
         canvas.innerHTML = `
           <div style="color: var(--color-red); font-family: var(--font-display); font-size: 0.9rem; text-align: center; padding: 20px;">
             Telemetry Map Offline
+            <button class="map-retry-btn" style="margin-top: 8px; padding: 4px 12px; background: var(--color-cyan); border: none; border-radius: 4px; color: var(--bg-dark); font-family: var(--font-body); cursor: pointer;">
+              Retry
+            </button>
           </div>
         `;
+        canvas.querySelector('.map-retry-btn')?.addEventListener('click', () => this.init());
+      }
+    }
+  }
+
+  // Replace CSS var() references with actual color values for inline SVG
+  fixSvgColors(svgElement) {
+    const colorMap = {
+      'var(--color-cyan)': '#06b6d4',
+      'var(--color-blue)': '#3b82f6',
+      'var(--color-green)': '#10b981',
+      'var(--color-amber)': '#f59e0b',
+      'var(--color-red)': '#ef4444',
+    };
+
+    const walker = document.createTreeWalker(svgElement, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_ATTRIBUTE, null, false);
+    const nodes = [];
+    let node;
+    while (node = walker.nextNode()) {
+      nodes.push(node);
+    }
+
+    for (const n of nodes) {
+      // Fix attributes
+      for (const attr of Array.from(n.attributes)) {
+        let value = attr.value;
+        for (const [cssVar, hex] of Object.entries(colorMap)) {
+          if (value.includes(cssVar)) {
+            value = value.replace(new RegExp(cssVar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), hex);
+          }
+        }
+        if (value !== attr.value) {
+          n.setAttribute(attr.name, value);
+        }
+      }
+      // Fix style attribute
+      if (n.style) {
+        let cssText = n.style.cssText;
+        for (const [cssVar, hex] of Object.entries(colorMap)) {
+          if (cssText.includes(cssVar)) {
+            cssText = cssText.replace(new RegExp(cssVar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), hex);
+          }
+        }
+        if (cssText !== n.style.cssText) {
+          n.style.cssText = cssText;
+        }
       }
     }
   }
@@ -70,6 +122,11 @@ export class CampusMap {
       building.addEventListener('mouseleave', () => this.hideTooltip());
       building.addEventListener('mousemove', (e) => this.moveTooltip(e));
       building.addEventListener('click', () => this.selectBuilding(building.id));
+      // Improve touch targets on mobile
+      building.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        this.selectBuilding(building.id);
+      }, { passive: false });
     });
   }
 
@@ -79,7 +136,7 @@ export class CampusMap {
     if (!stats) return;
 
     this.tooltip.innerHTML = `
-      <div class="map-tooltip-title">${stats.name}</div>
+      <div class="map-tooltip-title">${escapeHtml(stats.name)}</div>
       <div class="map-tooltip-row">Load: <span class="map-tooltip-value cyan">${stats.load.toFixed(1)} kW</span></div>
       <div class="map-tooltip-row">Temp: <span class="map-tooltip-value">${stats.currentTemp.toFixed(1)}°C</span></div>
       <div class="map-tooltip-footer">Click for deep analytics</div>
@@ -123,24 +180,25 @@ export class CampusMap {
 
   updateMapStates(buildingData, solarOutput) {
     this.lastBuildingData = buildingData;
-    
+
     if (!this.isLoaded) {
       this.pendingUpdateData = { buildingData, solarOutput };
       return;
     }
-    
+
     Object.keys(buildingData).forEach(id => {
       const el = this.container.querySelector(`#${id}`);
       if (!el) return;
 
       const stats = buildingData[id];
-      
+
       if (el.getAttribute('data-status') !== stats.state) {
         el.setAttribute('data-status', stats.state);
       }
 
       // Update wire speeds and direction
-      const wire = this.container.querySelector(`#wire-${id.replace('building-', '')}`);
+      const wireId = id.replace('building-', '');
+      const wire = this.container.querySelector(`#wire-${wireId}`);
       if (wire) {
         if (stats.load === 0) {
           if (!wire.classList.contains('inactive')) {
@@ -178,4 +236,11 @@ export class CampusMap {
       }
     }
   }
+}
+
+// Simple HTML escape utility
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
