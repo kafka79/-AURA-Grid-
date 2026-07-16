@@ -210,16 +210,13 @@ export class SimulationEngine {
   }
 
   notify() {
-    const cloned = deepClone(this.state);
     for (const listener of this.listeners) {
-      listener(cloned);
+      listener(this.state);
     }
   }
 
   updateState(fn) {
-    const nextState = deepClone(this.state);
-    fn(nextState);
-    this.state = nextState;
+    fn(this.state);
     this.saveState();
     this.notify();
   }
@@ -245,9 +242,9 @@ export class SimulationEngine {
       }
 
       if (remaining > 0.001) {
-        // Schedule remaining work in next microtask
+        // Schedule remaining work in next macrotask
         this.pendingWork = remaining;
-        queueMicrotask(() => this.stepSimulation(this.pendingWork));
+        setTimeout(() => this.stepSimulation(this.pendingWork), 0);
         this.pendingWork = null;
       }
 
@@ -457,8 +454,29 @@ function updateTariffTracking(state, deltaTimeHours, totalCampusLoad, isPeakRate
   const energyCost = state.gridDemand * deltaTimeHours * energyRate;
   state.tariff.accumulatedEnergyCost += energyCost;
 
-  // Track max demand for demand charge (kVA, assuming PF ~0.95)
-  const demandKva = state.gridDemand / 0.95;
+  // Track max demand for demand charge (kVA, dynamic PF based on campus inductive loads)
+  let totalKvar = 0;
+  if (state.buildings) {
+    Object.keys(state.buildings).forEach(id => {
+      const b = state.buildings[id];
+      if (!b || b.load <= 0 || !b.categoryBreakdown) return;
+      
+      const bd = b.categoryBreakdown;
+      const hvacKw = b.load * (bd.hvac / 100);
+      const lightsKw = b.load * (bd.lights / 100);
+      const equipKw = b.load * (bd.equipment / 100);
+      const serversKw = b.load * (bd.servers / 100);
+
+      // kVAR = kW * tan(acos(PF)). Typical PFs: HVAC 0.85, Lights 0.98, Equipment 0.90, Servers 0.95
+      totalKvar += hvacKw * Math.tan(Math.acos(0.85));
+      totalKvar += lightsKw * Math.tan(Math.acos(0.98));
+      totalKvar += equipKw * Math.tan(Math.acos(0.90));
+      totalKvar += serversKw * Math.tan(Math.acos(0.95));
+    });
+  }
+
+  const demandKva = Math.sqrt(state.gridDemand * state.gridDemand + totalKvar * totalKvar);
+
   if (demandKva > state.tariff.currentMonthDemandPeak) {
     state.tariff.currentMonthDemandPeak = demandKva;
   }

@@ -37,8 +37,7 @@ export class CampusMap {
         const svgElement = doc.querySelector('svg');
 
         if (svgElement) {
-          // Remove any CSS custom property references that won't work in inline SVG
-          this.fixSvgColors(svgElement);
+          // Let CSS custom properties natively handle colors inside inline SVG
 
           canvas.appendChild(svgElement);
           this.isLoaded = true;
@@ -70,50 +69,6 @@ export class CampusMap {
     }
   }
 
-  // Replace CSS var() references with actual color values for inline SVG
-  fixSvgColors(svgElement) {
-    const colorMap = {
-      'var(--color-cyan)': '#06b6d4',
-      'var(--color-blue)': '#3b82f6',
-      'var(--color-green)': '#10b981',
-      'var(--color-amber)': '#f59e0b',
-      'var(--color-red)': '#ef4444',
-    };
-
-    const walker = document.createTreeWalker(svgElement, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_ATTRIBUTE, null, false);
-    const nodes = [];
-    let node;
-    while (node = walker.nextNode()) {
-      nodes.push(node);
-    }
-
-    for (const n of nodes) {
-      // Fix attributes
-      for (const attr of Array.from(n.attributes)) {
-        let value = attr.value;
-        for (const [cssVar, hex] of Object.entries(colorMap)) {
-          if (value.includes(cssVar)) {
-            value = value.replace(new RegExp(cssVar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), hex);
-          }
-        }
-        if (value !== attr.value) {
-          n.setAttribute(attr.name, value);
-        }
-      }
-      // Fix style attribute
-      if (n.style) {
-        let cssText = n.style.cssText;
-        for (const [cssVar, hex] of Object.entries(colorMap)) {
-          if (cssText.includes(cssVar)) {
-            cssText = cssText.replace(new RegExp(cssVar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), hex);
-          }
-        }
-        if (cssText !== n.style.cssText) {
-          n.style.cssText = cssText;
-        }
-      }
-    }
-  }
 
   bindEvents() {
     const buildings = this.container.querySelectorAll('.map-building');
