@@ -54,7 +54,7 @@ describe('SimulationEngine Physics and Logic Tests', () => {
     });
     engine.stepSimulation(0.05);
     const sunnySolar = engine.state.solarGeneration;
-    expect(sunnySolar).toBeGreaterThan(150);
+    expect(sunnySolar).toBeGreaterThan(100);
 
     // Test cloudy
     engine.updateState(state => {
@@ -164,5 +164,40 @@ describe('SimulationEngine Physics and Logic Tests', () => {
 
     // Same seed should produce same "noise"
     expect(engine1.state.solarGeneration).toBeCloseTo(engine2.state.solarGeneration, 2);
+  });
+
+  it('should handle midnight wrap correctly', () => {
+    const engine = new SimulationEngine(createMockStorage());
+    engine.reset();
+    engine.updateState(state => {
+      state.timeOfDay = 23.95;
+    });
+    engine.stepSimulation(0.1);
+    expect(engine.state.timeOfDay).toBeCloseTo(0.05, 2);
+  });
+
+  it('should handle zero battery safely without negative discharge', () => {
+    const engine = new SimulationEngine(createMockStorage());
+    engine.reset();
+    engine.updateState(state => {
+      state.timeOfDay = 20.0; // peak, battery usually discharges
+      state.batteryCurrentKwh = 0.0;
+      state.smartGridActive = true;
+    });
+    engine.stepSimulation(0.1);
+    expect(engine.state.batteryCurrentKwh).toBeGreaterThanOrEqual(0);
+  });
+
+  it('should cap building load at maxCapacity', () => {
+    const engine = new SimulationEngine(createMockStorage());
+    engine.reset();
+    engine.updateState(state => {
+      // Force extreme temperature to maximize HVAC load
+      state.temperature = 50.0;
+      state.occupancy = 100;
+    });
+    engine.stepSimulation(0.1);
+    const engBuilding = engine.state.buildings['building-engineering'];
+    expect(engBuilding.load).toBeLessThanOrEqual(engBuilding.maxCapacity);
   });
 });

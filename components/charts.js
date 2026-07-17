@@ -1,5 +1,3 @@
-import ApexCharts from 'apexcharts';
-
 export class DashboardCharts {
   constructor(liveChartId, donutChartId) {
     this.liveChartId = liveChartId;
@@ -24,8 +22,23 @@ export class DashboardCharts {
     this.init();
   }
 
-  init() {
-    // Initialize Live Energy Trend Chart
+  async init() {
+    try {
+      // Add loading skeleton
+      const liveContainer = document.querySelector(this.liveChartId);
+      const donutContainer = document.querySelector(this.donutChartId);
+      if (liveContainer) liveContainer.innerHTML = '<div class="chart-skeleton">Loading...</div>';
+      if (donutContainer) donutContainer.innerHTML = '<div class="chart-skeleton">Loading...</div>';
+
+      const module = await import('apexcharts');
+      const ApexCharts = module.default || module;
+
+      // Clear skeleton
+      if (liveContainer) liveContainer.innerHTML = '';
+      if (donutContainer) donutContainer.innerHTML = '';
+
+
+      // Initialize Live Energy Trend Chart
     const liveChartOptions = {
       series: [
         {
@@ -186,6 +199,13 @@ export class DashboardCharts {
     if (donutChartEl) {
       this.donutChart = new ApexCharts(donutChartEl, donutChartOptions);
       this.donutChart.render();
+    }
+
+    // Render any data that accumulated while the library was downloading
+    this.renderCurrentModeSeries();
+
+    } catch(e) {
+      console.error("[AURA Grid] Failed to load ApexCharts:", e);
     }
   }
 

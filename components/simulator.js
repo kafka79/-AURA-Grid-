@@ -1,5 +1,5 @@
 import { APP_CONFIG, INITIAL_BUILDINGS_CONFIG, OCCUPANCY_PROFILES } from './config.js';
-import { deepClone, formatSimTime, calculateSolarPosition, calculateIrradiance, createSeededRandom, storage, auditLog } from './utils.js';
+import { deepClone, formatSimTime, calculateSolarPosition, createSeededRandom, storage, auditLog } from './utils.js';
 
 export function getInitialState() {
   const buildings = {};
@@ -86,8 +86,6 @@ function simulateHistory(initialState) {
   const hourlyGridHistory = [];
   let hourlyAccumulator = { solar: [], grid: [] };
   let lastHourInt = 9;
-  let totalCarbonSaved = 0;
-  let totalKwh = 0;
 
   // Seed for deterministic weather noise
   const random = createSeededRandom(42);
@@ -97,8 +95,8 @@ function simulateHistory(initialState) {
     state.timeOfDay = (10 - historyLength + t) % 24;
 
     runTickInternal(state, stepSize, random);
-    totalCarbonSaved += state.accumulatedCarbonSaved;
-    totalKwh += state.accumulatedDailyKwh;
+    // state.accumulatedCarbonSaved is already a running total
+    // state.accumulatedDailyKwh resets daily, representing the total for the current simulated day
 
     const xVal = state.timeOfDay;
     solarHistory.push({ x: xVal, y: state.solarGeneration });
@@ -140,7 +138,7 @@ export class SimulationEngine {
     this.loadState();
   }
 
-  async loadState() {
+  loadState() {
     try {
       const saved = this.storage.get('aura-grid-state');
       if (saved) {
@@ -179,6 +177,7 @@ export class SimulationEngine {
       // Indian grid carbon intensity API (no CORS, requires token)
       // For now, use static Indian grid values from config
       // Future: integrate with co2signal.com or similar with API key
+      console.warn('[AURA Grid] Live carbon intensity API not connected. Using static fallback values.');
       this.updateState(state => {
         state.liveGridCarbon = null; // Use config fallback
       });
@@ -211,14 +210,20 @@ export class SimulationEngine {
 
   notify() {
     for (const listener of this.listeners) {
-      listener(this.state);
+      listener(deepClone(this.state));
     }
   }
 
   updateState(fn) {
-    fn(this.state);
-    this.saveState();
-    this.notify();
+    const snapshot = deepClone(this.state);
+    try {
+      fn(this.state);
+      this.saveState();
+      this.notify();
+    } catch (e) {
+      this.state = snapshot;
+      console.error('[AURA Grid] State update rolled back:', e);
+    }
   }
 
   // Main entry: advance simulation by elapsedHours
@@ -243,9 +248,7 @@ export class SimulationEngine {
 
       if (remaining > 0.001) {
         // Schedule remaining work in next macrotask
-        this.pendingWork = remaining;
-        setTimeout(() => this.stepSimulation(this.pendingWork), 0);
-        this.pendingWork = null;
+        setTimeout(() => this.stepSimulation(remaining), 0);
       }
 
       // Auto-resolve alerts when smart grid is active
@@ -325,6 +328,7 @@ function runTickInternal(state, deltaTimeHours, random) {
 
   const hour = state.timeOfDay;
   const isPeakRateHour = hour >= APP_CONFIG.hours.peakStart && hour <= APP_CONFIG.hours.peakEnd;
+  // Use || since off-peak period wraps around midnight (e.g. 23:00 to 05:00)
   const isOffPeakChargingHour = hour >= APP_CONFIG.hours.offPeakStart || hour <= APP_CONFIG.hours.offPeakEnd;
 
   if (state.smartGridActive) {
@@ -494,8 +498,11 @@ function calculateSolarGeneration(state, random) {
 
   // Calculate accurate solar position using SPA algorithm
   const date = new Date(); // Current date for declination
+  const simulatedDate = new Date(date); // Use simulated time of day for hour angle
+  simulatedDate.setHours(Math.floor(state.timeOfDay));
+  simulatedDate.setMinutes((state.timeOfDay % 1) * 60);
   const solarPos = calculateSolarPosition(
-    date,
+    simulatedDate,
     APP_CONFIG.campus.latitude,
     APP_CONFIG.campus.longitude,
     APP_CONFIG.campus.timezoneOffset

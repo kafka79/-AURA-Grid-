@@ -16,7 +16,7 @@ export function deepClone(obj) {
 // HTML Sanitization (prevents XSS)
 // ============================================
 const ALLOWED_TAGS = ['span', 'div', 'svg', 'path', 'circle', 'line', 'polyline', 'polygon', 'rect', 'text'];
-const ALLOWED_ATTRS = ['class', 'style', 'data-', 'width', 'height', 'viewBox', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'd', 'cx', 'cy', 'r', 'x1', 'y1', 'x2', 'y2', 'points', 'rx', 'ry', 'transform'];
+const ALLOWED_ATTRS = ['class', 'data-', 'width', 'height', 'viewBox', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'd', 'cx', 'cy', 'r', 'x1', 'y1', 'x2', 'y2', 'points', 'rx', 'ry', 'transform'];
 
 export function sanitizeHtml(html) {
   const template = document.createElement('template');
@@ -136,28 +136,6 @@ export function calculateSolarPosition(date, latitude, longitude, timezoneOffset
   };
 }
 
-// Irradiance on horizontal surface (W/m²) using Bird Clear Sky Model (simplified)
-// ============================================
-export function calculateIrradiance(solarPosition, weatherFactor = 1.0) {
-  if (!solarPosition.isDaylight) return 0;
-
-  const { elevation, airMass } = solarPosition;
-  const zenith = Math.PI / 2 - elevation;
-
-  // Extraterrestrial irradiance ~1361 W/m², corrected for Earth-Sun distance
-  const dayOfYear = new Date().getUTCDate(); // approximation
-  const eccentricity = 1 + 0.033 * Math.cos(2 * Math.PI * dayOfYear / 365);
-  const extraterrestrial = 1361 * eccentricity;
-
-  // Direct normal irradiance (Beer-Lambert law with standard atmosphere)
-  const tau = 0.75; // atmospheric transmissivity (clear sky)
-  const dni = extraterrestrial * Math.pow(tau, airMass);
-
-  // Global horizontal irradiance = direct + diffuse
-  const ghi = dni * Math.sin(elevation) * 0.85; // 0.85 approx for diffuse component
-
-  return Math.max(0, ghi * weatherFactor);
-}
 
 // ============================================
 // Seeded PRNG for deterministic "weather noise"

@@ -2,7 +2,7 @@ import { SimulationEngine } from './components/simulator.js';
 import { CampusMap } from './components/map.js';
 import { DashboardCharts } from './components/charts.js';
 import { AlertManager } from './components/alerts.js';
-import { formatSimTime, deepClone, auditLog } from './components/utils.js';
+import { formatSimTime, deepClone, auditLog, escapeHtml } from './components/utils.js';
 import { APP_CONFIG } from './components/config.js';
 
 class AppController {
@@ -123,40 +123,18 @@ class AppController {
     if (!container) {
       container = document.createElement('div');
       container.id = 'toast-container';
-      container.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        z-index: 1000;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        pointer-events: none;
-      `;
+      container.className = 'toast-container';
       document.body.appendChild(container);
     }
 
     const toast = document.createElement('div');
-    toast.style.cssText = `
-      background: var(--bg-panel);
-      border: 1px solid var(--border-light);
-      border-radius: 8px;
-      padding: 12px 16px;
-      max-width: 350px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-      backdrop-filter: blur(8px);
-      font-size: 0.85rem;
-      color: var(--text-primary);
-      pointer-events: auto;
-      animation: slideIn 0.3s ease;
-      border-left: 4px solid var(--color-${severity === 'critical' ? 'red' : severity === 'warning' ? 'amber' : 'cyan'});
-    `;
+    toast.className = `toast-item ${severity}`;
     toast.textContent = message;
 
     container.appendChild(toast);
 
     setTimeout(() => {
-      toast.style.animation = 'slideOut 0.3s ease forwards';
+      toast.classList.add('hide');
       setTimeout(() => toast.remove(), 300);
     }, 5000);
   }
@@ -504,19 +482,19 @@ class AppController {
       this.lastRanksOrder = currentOrderStr;
 
       this.dom.leaderboardList.innerHTML = buildingsArr.map((b, idx) => {
-        let colorClass = 'var(--color-green)';
-        if (b.percentage > 80) colorClass = 'var(--color-red)';
-        else if (b.percentage > 60) colorClass = 'var(--color-amber)';
+        let colorClass = 'green';
+        if (b.percentage > 80) colorClass = 'red';
+        else if (b.percentage > 60) colorClass = 'amber';
 
         return `
           <div class="leaderboard-item" data-building-id="${b.id}">
             <div class="leaderboard-name-group">
               <span class="rank-num">#${idx + 1}</span>
-              <span>${b.name}</span>
+              <span>${escapeHtml(b.name)}</span>
             </div>
-            <div class="leaderboard-progress-container" style="display: flex; align-items: center; gap: 10px; flex-grow: 1; max-width: 140px; margin-left: 10px;">
-              <div style="height: 6px; width: 100%; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden;">
-                <div class="leaderboard-bar" style="height: 100%; width: ${b.percentage}%; background: ${colorClass}; border-radius: 3px;"></div>
+            <div class="leaderboard-progress-container">
+              <div class="leaderboard-track">
+                <div class="leaderboard-bar ${colorClass}" style="width: ${b.percentage}%;"></div>
               </div>
             </div>
             <span class="leaderboard-score ${b.percentage > 65 ? 'score-down' : ''}">
@@ -533,13 +511,13 @@ class AppController {
         const barEl = itemEl.querySelector('.leaderboard-bar');
         const scoreEl = itemEl.querySelector('.leaderboard-score');
 
-        let colorClass = 'var(--color-green)';
-        if (b.percentage > 80) colorClass = 'var(--color-red)';
-        else if (b.percentage > 60) colorClass = 'var(--color-amber)';
+        let colorClass = 'green';
+        if (b.percentage > 80) colorClass = 'red';
+        else if (b.percentage > 60) colorClass = 'amber';
 
         if (barEl) {
           barEl.style.width = `${b.percentage}%`;
-          barEl.style.backgroundColor = colorClass;
+          barEl.className = `leaderboard-bar ${colorClass}`;
         }
 
         if (scoreEl) {

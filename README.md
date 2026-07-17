@@ -196,10 +196,7 @@ All physics constants, campus geography, building specs, and tariff rates are ce
 
 ##  Bundle Size Note
 
-The production bundle is ~665 kB (186 kB gzipped), primarily due to **ApexCharts** (~500 kB). For size-constrained environments, consider:
-- Dynamic `import()` for charts (code-split)
-- Lightweight Canvas/SVG chart alternative (~200 lines)
-- `build.rollupOptions.output.manualChunks` to separate vendor chunk
+The application bundle is highly optimized. **ApexCharts** is lazy-loaded via dynamic `import()`, meaning the initial Javascript payload is only ~43 kB. The heavier charting library (~622 kB) only loads asynchronously, ensuring a near-instant First Contentful Paint.
 
 ---
 
@@ -211,6 +208,15 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push/PR:
 3. Build production bundle (`npm run build`)
 4. Upload `dist/` as artifact
 5. Deploy to GitHub Pages on `main` branch (optional)
+
+---
+
+## Limitations & Known Issues
+
+While AURA Grid employs mathematically rigorous physics models, please note the following limitations:
+- **No Real IoT Integration:** The dashboard relies completely on simulated telemetry. There is currently no live MQTT or API integration to ingest real campus meter data.
+- **Stubbed Carbon API:** The `syncLiveCarbonIntensity` function currently uses static configuration fallbacks instead of a live API (like co2signal.com).
+- **Hardcoded Coordinates:** The campus coordinates (latitude, longitude, timezone) are hardcoded in `config.js`. Changing them currently requires editing the source code rather than using a configuration UI.
 
 ---
 
