@@ -140,9 +140,15 @@ export class CampusMap {
       this.pendingUpdateData = { buildingData, solarOutput };
       return;
     }
+    
+    if (!this.elCache) this.elCache = new Map();
 
     Object.keys(buildingData).forEach(id => {
-      const el = this.container.querySelector(`#${id}`);
+      let el = this.elCache.get(id);
+      if (el === undefined) {
+        el = this.container.querySelector(`#${id}`);
+        this.elCache.set(id, el);
+      }
       if (!el) return;
 
       const stats = buildingData[id];
@@ -153,7 +159,11 @@ export class CampusMap {
 
       // Update wire speeds and direction
       const wireId = id.replace('building-', '');
-      const wire = this.container.querySelector(`#wire-${wireId}`);
+      let wire = this.elCache.get(`wire-${wireId}`);
+      if (wire === undefined) {
+        wire = this.container.querySelector(`#wire-${wireId}`);
+        this.elCache.set(`wire-${wireId}`, wire);
+      }
       if (wire) {
         if (stats.load === 0) {
           if (!wire.classList.contains('inactive')) {
@@ -174,7 +184,11 @@ export class CampusMap {
     });
 
     // Update solar wire
-    const solarWire = this.container.querySelector('#wire-solar');
+    let solarWire = this.elCache.get('wire-solar');
+    if (solarWire === undefined) {
+      solarWire = this.container.querySelector('#wire-solar');
+      this.elCache.set('wire-solar', solarWire);
+    }
     if (solarWire) {
       if (solarOutput <= 5) {
         if (!solarWire.classList.contains('inactive')) {

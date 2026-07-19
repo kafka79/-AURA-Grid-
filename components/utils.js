@@ -152,14 +152,18 @@ export function createSeededRandom(seed) {
 // LocalStorage wrapper with quota handling
 // ============================================
 export const storage = {
+  _memory: new Map(),
   get(key) {
     try {
-      return localStorage.getItem(key);
+      const val = localStorage.getItem(key);
+      if (val !== null) return val;
+      return this._memory.has(key) ? this._memory.get(key) : null;
     } catch {
-      return null;
+      return this._memory.has(key) ? this._memory.get(key) : null;
     }
   },
   set(key, value) {
+    this._memory.set(key, value);
     try {
       localStorage.setItem(key, value);
       return true;
@@ -179,6 +183,7 @@ export const storage = {
     }
   },
   remove(key) {
+    this._memory.delete(key);
     try {
       localStorage.removeItem(key);
       return true;

@@ -40,8 +40,10 @@ describe('SimulationEngine Physics and Logic Tests', () => {
     const resultingTemp = engine.state.buildings['building-engineering'].currentTemp;
     
     // With hvacSet at 22, initial temp at 22, and outdoor temp at 40:
-    // T' = - (k_env + k_hvac) * T + (k_env * T_out + k_hvac * T_set)
-    expect(resultingTemp).toBeCloseTo(22.0, 1);
+    // With the corrected thermodynamics, the steady-state will be a weighted average
+    // between T_out (40) and T_set (22), so the room will slowly drift warmer.
+    expect(resultingTemp).toBeGreaterThan(22.0);
+    expect(resultingTemp).toBeLessThan(30.0); // It shouldn't jump too much in 2 hours
   });
 
   it('should compute solar output adjusted for sunny, cloudy, and rainy weather', () => {

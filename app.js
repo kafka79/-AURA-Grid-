@@ -1,13 +1,12 @@
-import { SimulationEngine } from './components/simulator.js';
 import { CampusMap } from './components/map.js';
 import { DashboardCharts } from './components/charts.js';
 import { AlertManager } from './components/alerts.js';
-import { formatSimTime, deepClone, auditLog, escapeHtml } from './components/utils.js';
+import { formatSimTime, escapeHtml } from './components/utils.js';
 import { APP_CONFIG } from './components/config.js';
 
 class AppController {
   constructor() {
-    this.engine = new SimulationEngine();
+    this.worker = new Worker(new URL('./components/worker.js', import.meta.url), { type: 'module' });
     this.destroyed = false;
 
     // Cache of rendered values to eliminate DOM reads
@@ -90,31 +89,30 @@ class AppController {
     this.charts = new DashboardCharts('live-chart', 'donut-chart');
     this.alertsManager = new AlertManager('alerts-list', (id) => this.handleAlertResolve(id));
 
-    // Initialize charts with pre-simulated history
-    if (this.engine.state._history) {
-      this.charts.initializeHistory(this.engine.state._history);
-    }
-
     this.bindCockpitEvents();
-
-    // Subscribe to engine state notifications
-    this.unsubscribe = this.engine.subscribe((state) => {
-      this.state = state;
-      this.tick();
-    });
-
-    // Start Simulation Loop
-    this.startSimulation();
-
-    // Listen for audit log events (auto-actions) to show toasts
     this.setupAuditLogListener();
+
+    this.worker.onmessage = (e) => {
+      if (e.data.type === 'STATE_UPDATE') {
+        const state = e.data.state;
+        
+        if (!this.state && state._history) {
+          this.charts.initializeHistory(state._history);
+          this.startSimulation();
+        }
+
+        this.state = state;
+        this.tick();
+      }
+    };
   }
 
   setupAuditLogListener() {
-    window.addEventListener('aura-audit', (e) => {
+    this.auditLogHandler = (e) => {
       const entry = e.detail;
       this.showToast(entry.description, entry.severity);
-    });
+    };
+    window.addEventListener('aura-audit', this.auditLogHandler);
   }
 
   showToast(message, severity = 'info') {
@@ -141,21 +139,15 @@ class AppController {
 
   bindCockpitEvents() {
     this.dom.timeInput.addEventListener('input', (e) => {
-      this.engine.updateState(state => {
-        state.timeOfDay = parseFloat(e.target.value);
-      });
+      this.worker.postMessage({ type: 'UPDATE_STATE', payload: { timeOfDay: parseFloat(e.target.value) } });
     });
 
     this.dom.tempInput.addEventListener('input', (e) => {
-      this.engine.updateState(state => {
-        state.temperature = parseInt(e.target.value, 10);
-      });
+      this.worker.postMessage({ type: 'UPDATE_STATE', payload: { temperature: parseInt(e.target.value, 10) } });
     });
 
     this.dom.occupancyInput.addEventListener('input', (e) => {
-      this.engine.updateState(state => {
-        state.occupancy = parseInt(e.target.value, 10);
-      });
+      this.worker.postMessage({ type: 'UPDATE_STATE', payload: { occupancy: parseInt(e.target.value, 10) } });
     });
 
     this.dom.weatherBtns.forEach(btn => {
@@ -164,21 +156,17 @@ class AppController {
           if (b !== btn) b.classList.remove('active');
         });
         btn.classList.add('active');
-        this.engine.updateState(state => {
-          state.weather = btn.getAttribute('data-weather');
-        });
+        this.worker.postMessage({ type: 'UPDATE_STATE', payload: { weather: btn.getAttribute('data-weather') } });
       });
     });
 
     this.dom.smartGridInput.addEventListener('change', (e) => {
-      this.engine.updateState(state => {
-        state.smartGridActive = e.target.checked;
-      });
+      this.worker.postMessage({ type: 'UPDATE_STATE', payload: { smartGridActive: e.target.checked } });
     });
 
     this.dom.resetBtn.addEventListener('click', () => {
-      this.engine.reset();
-      if (this.charts) {
+      this.worker.postMessage({ type: 'RESET' });
+      if (this.charts && this.state) {
         this.charts.reset(this.state.timeOfDay);
       }
     });
@@ -204,15 +192,27 @@ class AppController {
 
   startSimulation() {
     this.lastTickTime = performance.now();
+    
+    // Listen for tab visibility changes to pause/resume cleanly
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this.lastTickTime = null;
+      } else {
+        this.lastTickTime = performance.now();
+      }
+    });
+
     this.timer = setInterval(() => {
       if (this.destroyed) return;
+      if (document.hidden || !this.lastTickTime) return;
+
       const now = performance.now();
       const elapsedMs = now - this.lastTickTime;
       this.lastTickTime = now;
 
       // Calculate hours advanced, ensuring exact physics mapping over the interval
       const elapsedHours = (elapsedMs / this.tickInterval) * this.simSpeed;
-      this.engine.stepSimulation(elapsedHours);
+      this.worker.postMessage({ type: 'STEP_SIMULATION', elapsedHours });
     }, this.tickInterval);
   }
 
@@ -223,31 +223,7 @@ class AppController {
   }
 
   handleAlertResolve(alertId) {
-    this.engine.updateState(state => {
-      const alert = state.alerts.find(a => a.id === alertId);
-      if (alert && !alert.resolved) {
-        alert.resolved = true;
-        // Perform simulated correction shifts physically
-        const actionId = alert.actionId;
-        if (actionId === 'optimize-library-hvac') {
-          if (state.buildings['building-library']) {
-            state.buildings['building-library'].hvacSet = 23;
-          }
-        } else if (actionId === 'optimize-temp-limit') {
-          Object.keys(state.buildings).forEach(id => {
-            if (state.buildings[id]) {
-              state.buildings[id].hvacSet += 2;
-            }
-          });
-        } else if (actionId === 'shed-engineering-labs') {
-          if (state.buildings['building-engineering']) {
-            state.buildings['building-engineering'].baseLoad = 35;
-          }
-        } else if (actionId === 'conserve-battery') {
-          state.batteryCurrentKwh = Math.max(state.batteryCurrentKwh, state.batteryCapacityKwh * 0.3);
-        }
-      }
-    });
+    this.worker.postMessage({ type: 'RESOLVE_ALERT', alertId });
   }
 
   updateDOMText(element, value) {
@@ -273,14 +249,14 @@ class AppController {
   tick() {
     if (!this.state) return;
 
-    // Sync input sliders to state
-    if (this.dom.timeInput && parseFloat(this.dom.timeInput.value).toFixed(1) !== this.state.timeOfDay.toFixed(1)) {
+    // Sync input sliders to state (only if they are not actively being interacted with)
+    if (this.dom.timeInput && document.activeElement !== this.dom.timeInput && parseFloat(this.dom.timeInput.value).toFixed(1) !== this.state.timeOfDay.toFixed(1)) {
       this.dom.timeInput.value = this.state.timeOfDay;
     }
-    if (this.dom.tempInput && parseInt(this.dom.tempInput.value, 10) !== this.state.temperature) {
+    if (this.dom.tempInput && document.activeElement !== this.dom.tempInput && parseInt(this.dom.tempInput.value, 10) !== this.state.temperature) {
       this.dom.tempInput.value = this.state.temperature;
     }
-    if (this.dom.occupancyInput && parseInt(this.dom.occupancyInput.value, 10) !== this.state.occupancy) {
+    if (this.dom.occupancyInput && document.activeElement !== this.dom.occupancyInput && parseInt(this.dom.occupancyInput.value, 10) !== this.state.occupancy) {
       this.dom.occupancyInput.value = this.state.occupancy;
     }
     if (this.dom.smartGridInput) {
@@ -323,7 +299,8 @@ class AppController {
     // Tariff metrics
     const tariff = this.state.tariff || { accumulatedEnergyCost: 0, maxDemandKva: 0, currentMonthDemandPeak: 0 };
     const demandCharge = tariff.maxDemandKva * APP_CONFIG.tariff.demandChargePerKva;
-    const projectedBill = (tariff.accumulatedEnergyCost + demandCharge) * (1 + APP_CONFIG.tariff.gstRate) + APP_CONFIG.tariff.fixedChargePerMonth;
+    const pfPenalty = tariff.powerFactorPenalty || 0;
+    const projectedBill = (tariff.accumulatedEnergyCost + demandCharge + pfPenalty) * (1 + APP_CONFIG.tariff.gstRate) + APP_CONFIG.tariff.fixedChargePerMonth;
 
     if (this.dom.energyCost) this.updateDOMText(this.dom.energyCost, `₹${tariff.accumulatedEnergyCost.toFixed(0)}`);
     if (this.dom.demandCharge) this.updateDOMText(this.dom.demandCharge, `₹${demandCharge.toFixed(0)}`);
@@ -538,7 +515,8 @@ class AppController {
   destroy() {
     this.destroyed = true;
     if (this.timer) clearInterval(this.timer);
-    if (this.unsubscribe) this.unsubscribe();
+    if (this.worker) this.worker.terminate();
+    if (this.auditLogHandler) window.removeEventListener('aura-audit', this.auditLogHandler);
   }
 }
 

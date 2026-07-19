@@ -174,26 +174,35 @@ export class SimulationEngine {
 
   async syncLiveCarbonIntensity() {
     try {
-      // Indian grid carbon intensity API (no CORS, requires token)
-      // For now, use static Indian grid values from config
-      // Future: integrate with co2signal.com or similar with API key
-      console.warn('[AURA Grid] Live carbon intensity API not connected. Using static fallback values.');
+      // Using the free UK Carbon Intensity API as a working example for real-world integration
+      const res = await fetch('https://api.carbonintensity.org.uk/intensity');
+      if (!res.ok) throw new Error('API failed');
+      const data = await res.json();
+      const actualIntensity = data.data[0].intensity.actual; // grams CO2/kWh
+      this.updateState(state => {
+        state.liveGridCarbon = actualIntensity / 1000; // convert to kg CO2/kWh
+      });
+      console.log(`[AURA Grid] Successfully synced live carbon intensity: ${actualIntensity} gCO2/kWh`);
+    } catch (e) {
+      console.warn('[AURA Grid] Live carbon intensity API failed or offline. Using static fallback values.');
       this.updateState(state => {
         state.liveGridCarbon = null; // Use config fallback
       });
-    } catch (e) {
-      console.warn('[AURA Grid] Using static carbon intensity coefficients');
     }
   }
 
   saveState() {
-    try {
-      // Don't persist history buffers (too large)
-      const { _history, ...persistState } = this.state;
-      this.storage.set('aura-grid-state', JSON.stringify(persistState));
-    } catch (e) {
-      // Ignore quota errors
-    }
+    if (this._saveTimeout) return;
+    this._saveTimeout = setTimeout(() => {
+      try {
+        // Don't persist history buffers (too large)
+        const { _history, ...persistState } = this.state;
+        this.storage.set('aura-grid-state', JSON.stringify(persistState));
+      } catch (e) {
+        // Ignore quota errors
+      }
+      this._saveTimeout = null;
+    }, 500);
   }
 
   reset() {
@@ -292,7 +301,7 @@ function runTickInternal(state, deltaTimeHours, random) {
 
     // Analytical exponential decay integration (unconditionally stable)
     const B = kEnv + kHvac;
-    const steadyStateTemp = b.hvacSet;
+    const steadyStateTemp = B > 0 ? (kEnv * state.temperature + kHvac * b.hvacSet) / B : b.hvacSet;
     b.currentTemp = steadyStateTemp + (b.currentTemp - steadyStateTemp) * Math.exp(-B * deltaTimeHours);
 
     // HVAC thermal effort -> electrical load
@@ -345,7 +354,11 @@ function runTickInternal(state, deltaTimeHours, random) {
         const actualAdded = state.batteryCurrentKwh - prevKwh;
         if (actualAdded > 0) {
           // Battery carbon intensity: weighted average of existing + new solar (zero carbon)
-          state.batteryCarbonIntensity = (prevKwh * state.batteryCarbonIntensity) / state.batteryCurrentKwh;
+          if (state.batteryCurrentKwh > 0) {
+            state.batteryCarbonIntensity = (prevKwh * state.batteryCarbonIntensity) / state.batteryCurrentKwh;
+          } else {
+            state.batteryCarbonIntensity = 0;
+          }
         }
         batteryActivity = actualAdded / (deltaTimeHours * eff);
       }
@@ -372,7 +385,11 @@ function runTickInternal(state, deltaTimeHours, random) {
         if (actualAdded > 0) {
           // Off-peak grid carbon intensity (includes charging losses)
           const chargedIntensity = offPeakGridCarbon / eff;
-          state.batteryCarbonIntensity = (prevKwh * state.batteryCarbonIntensity + actualAdded * chargedIntensity) / state.batteryCurrentKwh;
+          if (state.batteryCurrentKwh > 0) {
+            state.batteryCarbonIntensity = (prevKwh * state.batteryCarbonIntensity + actualAdded * chargedIntensity) / state.batteryCurrentKwh;
+          } else {
+            state.batteryCarbonIntensity = chargedIntensity;
+          }
         }
         batteryActivity = actualAdded / (deltaTimeHours * eff);
       }
@@ -389,7 +406,11 @@ function runTickInternal(state, deltaTimeHours, random) {
       state.batteryCurrentKwh = Math.min(state.batteryCapacityKwh, state.batteryCurrentKwh + addedEnergyStored);
       const actualAdded = state.batteryCurrentKwh - prevKwh;
       if (actualAdded > 0) {
-        state.batteryCarbonIntensity = (prevKwh * state.batteryCarbonIntensity) / state.batteryCurrentKwh;
+        if (state.batteryCurrentKwh > 0) {
+          state.batteryCarbonIntensity = (prevKwh * state.batteryCarbonIntensity) / state.batteryCurrentKwh;
+        } else {
+          state.batteryCarbonIntensity = 0;
+        }
       }
       batteryActivity = actualAdded / (deltaTimeHours * eff);
     } else if (state.batteryCurrentKwh > (state.batteryCapacityKwh * APP_CONFIG.battery.minChargeRatio)) {
@@ -480,6 +501,27 @@ function updateTariffTracking(state, deltaTimeHours, totalCampusLoad, isPeakRate
   }
 
   const demandKva = Math.sqrt(state.gridDemand * state.gridDemand + totalKvar * totalKvar);
+  
+  if (!state.tariff.accumulatedKwh) state.tariff.accumulatedKwh = 0;
+  if (!state.tariff.accumulatedKvarh) state.tariff.accumulatedKvarh = 0;
+  state.tariff.accumulatedKwh += state.gridDemand * deltaTimeHours;
+  state.tariff.accumulatedKvarh += totalKvar * deltaTimeHours;
+  
+  const totalMonthlyKva = Math.sqrt(state.tariff.accumulatedKwh ** 2 + state.tariff.accumulatedKvarh ** 2);
+  const avgMonthlyPf = totalMonthlyKva > 0 ? (state.tariff.accumulatedKwh / totalMonthlyKva) : 1.0;
+  
+  // Power factor penalty/rebate (calculated on a monthly average basis)
+  const targetPf = tariff.powerFactor.target;
+  const pfDiff = (avgMonthlyPf - targetPf) * 100; // in percent
+  
+  let pfCost = 0;
+  if (pfDiff < 0) {
+    pfCost = Math.abs(pfDiff) * tariff.powerFactor.penaltyPerPercent;
+  } else if (pfDiff > 0) {
+    pfCost = -pfDiff * tariff.powerFactor.rebatePerPercent;
+  }
+  
+  state.tariff.powerFactorPenalty = pfCost;
 
   if (demandKva > state.tariff.currentMonthDemandPeak) {
     state.tariff.currentMonthDemandPeak = demandKva;
@@ -593,6 +635,26 @@ function triggerDynamicAlerts(state) {
     }
   } else {
     state.alerts = state.alerts.filter(a => a.id !== 'alert-low-battery');
+  }
+
+  // Peak Tariff Optimization Recommendation
+  const isPeak = (state.timeOfDay >= APP_CONFIG.hours.peakStart && state.timeOfDay < APP_CONFIG.hours.peakEnd);
+  if (isPeak && !state.smartGridActive) {
+    if (!state.alerts.find(a => a.id === 'alert-peak-tariff')) {
+      state.alerts.unshift({
+        id: 'alert-peak-tariff',
+        buildingId: 'building-library',
+        level: 'warning',
+        title: 'Peak Tariff Active',
+        desc: `Recommend shifting HVAC loads by 1 hour to save ₹12,000.`,
+        time: formatSimTime(state.timeOfDay),
+        actionId: 'optimize-library-hvac',
+        actionLabel: 'Shift HVAC Load',
+        resolved: false,
+      });
+    }
+  } else {
+    state.alerts = state.alerts.filter(a => a.id !== 'alert-peak-tariff');
   }
 }
 
